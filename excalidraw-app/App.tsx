@@ -1,3 +1,4 @@
+
 import {
   Excalidraw,
   LiveCollaborationTrigger,
@@ -150,6 +151,20 @@ import { ExcalidrawPlusPromoBanner } from "./components/ExcalidrawPlusPromoBanne
 import { AppSidebar } from "./components/AppSidebar";
 
 import type { CollabAPI } from "./collab/Collab";
+
+import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
+
+const saveCurrentBoard = async () => {
+  const data = serializeAsJSON(
+    excalidrawAPI.getSceneElements(),
+    excalidrawAPI.getAppState(),
+    excalidrawAPI.getFiles(),
+    "local",
+  );
+
+  await window.boardStorage.save("test-board", data);
+};
+
 
 polyfill();
 
