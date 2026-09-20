@@ -425,6 +425,66 @@ const ExcalidrawWrapper = ({
   }, []);
 
   const boardLoadedRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingBoardSaveRef = useRef<{
+    boardId: string;
+    data: string;
+  } | null>(null);
+  const boardSaveInProgressRef = useRef(false);
+
+  const flushBoardSave = useCallback(async () => {
+    if (boardSaveInProgressRef.current) {
+      return;
+    }
+
+    const pendingSave = pendingBoardSaveRef.current;
+    if (!pendingSave || !window.boardStorage) {
+      return;
+    }
+
+    pendingBoardSaveRef.current = null;
+    boardSaveInProgressRef.current = true;
+
+    try {
+      await window.boardStorage.save(pendingSave.boardId, pendingSave.data);
+    } finally {
+      boardSaveInProgressRef.current = false;
+
+      if (pendingBoardSaveRef.current) {
+        void flushBoardSave();
+      }
+    }
+  }, []);
+
+  const scheduleBoardSave = useCallback(
+    (data: string) => {
+      pendingBoardSaveRef.current = {
+        boardId,
+        data,
+      };
+
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      saveTimeoutRef.current = setTimeout(() => {
+        saveTimeoutRef.current = null;
+        void flushBoardSave();
+      }, 500);
+    },
+    [boardId, flushBoardSave],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      void flushBoardSave();
+    };
+  }, [flushBoardSave]);
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
@@ -586,25 +646,8 @@ const ExcalidrawWrapper = ({
     initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
       if (window.boardStorage) {
         try {
-          console.log("[BoardStorage] INITIALIZING BOARD:", boardId);
 
           const parsedData = await window.boardStorage.load(boardId);
-
-          console.log(
-            "[BoardStorage] RAW BOARD DATA:",
-            JSON.stringify(
-              {
-                board: parsedData.board,
-                elements: parsedData.elements?.map((element: any) => ({
-                  id: element.id,
-                  type: element.type,
-                  text: element.text,
-                })),
-              },
-              null,
-              2,
-            ),
-          );
 
           const boardScene = {
             elements: restoreElements(parsedData.elements, null, {
@@ -618,24 +661,6 @@ const ExcalidrawWrapper = ({
           if (parsedData.files) {
             excalidrawAPI.addFiles(Object.values(parsedData.files));
           }
-
-          console.log("[BoardStorage] Loaded board:", boardId);
-          console.log(
-            "[BoardStorage] Elements:",
-            boardScene.elements.map((element) => ({
-              id: element.id,
-              type: element.type,
-              text: "text" in element ? element.text : undefined,
-            })),
-          );
-          console.log(
-            "[BoardStorage] EXCALIDRAW SCENE BEFORE RESOLVE:",
-            excalidrawAPI.getSceneElementsIncludingDeleted().map((el) => ({
-              id: el.id,
-              type: el.type,
-              text: "text" in el ? el.text : undefined,
-            })),
-          );
 
           boardLoadedRef.current = true;
 
@@ -822,8 +847,7 @@ const ExcalidrawWrapper = ({
       boardLoadedRef.current
     ) {
       const data = serializeAsJSON(elements, appState, files, "local");
-
-      window.boardStorage.save(boardId, data);
+      scheduleBoardSave(data);
     }
 
     if (collabAPI?.isCollaborating()) {
@@ -1440,8 +1464,6 @@ const ExcalidrawApp = () => {
       const data = serializeAsJSON(elements, appState, files, "local");
 
       await window.boardStorage.save(board.id, data);
-
-      console.log("[IMPORT BOARD] saved:", board.id);
 
       setBoardId(board.id);
     } finally {
