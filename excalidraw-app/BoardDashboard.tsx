@@ -112,13 +112,23 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
       return;
     }
 
-    const name = newBoardName.trim();
+    try {
+      setCreateError(null);
 
-    setCreatingBoard(false);
-    setNewBoardName("");
-    setCreateError(null);
+      const board = await window.boardStorage.create(newBoardName.trim());
 
-    onOpenBoard(name);
+      setNewBoardName("");
+      setCreatingBoard(false);
+
+      const updatedBoards = await window.boardStorage.list();
+      setBoards(updatedBoards);
+
+      onOpenBoard(board.id);
+    } catch (error) {
+      setCreateError(
+        error instanceof Error ? error.message : "Failed to create board.",
+      );
+    }
   };
 
   const openRenameDialog = (board: Board) => {

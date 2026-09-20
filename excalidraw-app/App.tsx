@@ -378,7 +378,20 @@ const initializeScene = async (opts: {
   return { scene: null, isExternalScene: false };
 };
 
-const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
+const ExcalidrawWrapper = ({
+  boardId,
+  onImportBoard,
+  isImportingBoard,
+}: {
+  boardId: string;
+  onImportBoard: (data: {
+    elements: any[];
+    appState: any;
+    files: any;
+    name: string;
+  }) => Promise<void>;
+  isImportingBoard: boolean;
+}) => {
   const excalidrawAPI = useExcalidrawAPI();
 
   const [errorMessage, setErrorMessage] = useState("");
@@ -410,6 +423,8 @@ const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
       trackEvent("load", "version", getVersion());
     }, VERSION_TIMEOUT);
   }, []);
+
+  const boardLoadedRef = useRef(false);
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
@@ -571,30 +586,73 @@ const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
     initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
       if (window.boardStorage) {
         try {
+          console.log("[BoardStorage] INITIALIZING BOARD:", boardId);
+
           const parsedData = await window.boardStorage.load(boardId);
 
+          console.log(
+            "[BoardStorage] RAW BOARD DATA:",
+            JSON.stringify(
+              {
+                board: parsedData.board,
+                elements: parsedData.elements?.map((element: any) => ({
+                  id: element.id,
+                  type: element.type,
+                  text: element.text,
+                })),
+              },
+              null,
+              2,
+            ),
+          );
+
           const boardScene = {
-            ...data.scene,
             elements: restoreElements(parsedData.elements, null, {
               repairBindings: true,
+              deleteInvisibleElements: true,
             }),
             appState: restoreAppState(parsedData.appState, null),
+            files: parsedData.files || {},
           };
 
           if (parsedData.files) {
             excalidrawAPI.addFiles(Object.values(parsedData.files));
           }
 
-          console.log("[BoardStorage] Loaded test-board");
+          console.log("[BoardStorage] Loaded board:", boardId);
+          console.log(
+            "[BoardStorage] Elements:",
+            boardScene.elements.map((element) => ({
+              id: element.id,
+              type: element.type,
+              text: "text" in element ? element.text : undefined,
+            })),
+          );
+          console.log(
+            "[BoardStorage] EXCALIDRAW SCENE BEFORE RESOLVE:",
+            excalidrawAPI.getSceneElementsIncludingDeleted().map((el) => ({
+              id: el.id,
+              type: el.type,
+              text: "text" in el ? el.text : undefined,
+            })),
+          );
+
+          boardLoadedRef.current = true;
 
           initialStatePromiseRef.current.promise.resolve(boardScene);
           return;
         } catch (error) {
-          console.log("[BoardStorage] No saved test-board yet");
+          console.error(
+            `[BoardStorage] Could not load board ${boardId}:`,
+            error,
+          );
         }
       }
 
-      loadImages(data, /* isInitialLoad */ true);
+      loadImages(data, true);
+
+      boardLoadedRef.current = true;
+
       initialStatePromiseRef.current.promise.resolve(data.scene);
     });
 
@@ -758,7 +816,11 @@ const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    if (window.boardStorage) {
+    if (
+      window.boardStorage &&
+      !isImportingBoard &&
+      boardLoadedRef.current
+    ) {
       const data = serializeAsJSON(elements, appState, files, "local");
 
       window.boardStorage.save(boardId, data);
@@ -1080,6 +1142,7 @@ const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
           isCollabEnabled={!isCollabDisabled}
           theme={appTheme}
           refresh={() => forceRefresh((prev) => !prev)}
+          onImportBoard={onImportBoard}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
@@ -1356,6 +1419,35 @@ const ExcalidrawApp = () => {
   }
 
   const [boardId, setBoardId] = useState<string | null>(null);
+  const [isImportingBoard, setIsImportingBoard] = useState(false);
+
+  const importBoard = async ({
+    elements,
+    appState,
+    files,
+    name,
+  }: {
+    elements: any[];
+    appState: any;
+    files: any;
+    name: string;
+  }) => {
+    setIsImportingBoard(true);
+
+    try {
+      const board = await window.boardStorage.create(name);
+
+      const data = serializeAsJSON(elements, appState, files, "local");
+
+      await window.boardStorage.save(board.id, data);
+
+      console.log("[IMPORT BOARD] saved:", board.id);
+
+      setBoardId(board.id);
+    } finally {
+      setIsImportingBoard(false);
+    }
+  };
 
   return (
     <div
@@ -1384,8 +1476,12 @@ const ExcalidrawApp = () => {
         ) : (
           <TopErrorBoundary>
             <Provider store={appJotaiStore}>
-              <ExcalidrawAPIProvider>
-                <ExcalidrawWrapper boardId={boardId} />
+              <ExcalidrawAPIProvider key={boardId}>
+                <ExcalidrawWrapper
+                  boardId={boardId}
+                  onImportBoard={importBoard}
+                  isImportingBoard={isImportingBoard}
+                />
               </ExcalidrawAPIProvider>
             </Provider>
           </TopErrorBoundary>

@@ -5,6 +5,10 @@ ipcMain.handle("boards:list", () => {
   return boardStorage.listBoards();
 });
 
+ipcMain.handle("boards:create", (_, name) => {
+  return boardStorage.createBoard(name);
+});
+
 ipcMain.handle("boards:save", (_, id, data) => {
   return boardStorage.saveBoard(id, data);
 });
@@ -56,12 +60,25 @@ function createWindow() {
     },
   });
 
+  win.webContents.on("before-input-event", (event, input) => {
+    if (
+      input.type === "keyDown" &&
+      input.control &&
+      input.shift &&
+      input.key.toLowerCase() === "i"
+    ) {
+      win.webContents.toggleDevTools();
+    }
+  });
+
   win.loadURL("http://localhost:3001");
 }
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  
+
+  boardStorage.initializeStorage(app.getPath("userData"));
+
   createWindow();
 
   app.on("activate", () => {
