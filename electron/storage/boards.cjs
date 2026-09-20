@@ -45,6 +45,24 @@ function deleteBoard(id) {
   }
 }
 
+function renameBoard(id, newName) {
+  const oldPath = getBoardPath(id);
+
+  if (!fs.existsSync(oldPath)) {
+    throw new Error(`Board not found: ${id}`);
+  }
+
+  const newPath = getBoardPath(newName);
+
+  if (fs.existsSync(newPath)) {
+    throw new Error(`A board with that name already exists: ${newName}`);
+  }
+
+  fs.renameSync(oldPath, newPath);
+
+  return newName;
+}
+
 function listBoards() {
   ensureBoardsDirectory();
 
@@ -68,5 +86,6 @@ module.exports = {
   saveBoard,
   loadBoard,
   deleteBoard,
+  renameBoard,
   listBoards,
 };

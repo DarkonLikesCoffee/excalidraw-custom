@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu } = require("electron");
 const boardStorage = require("./storage/boards.cjs");
 
 ipcMain.handle("boards:list", () => {
@@ -17,21 +17,28 @@ ipcMain.handle("boards:delete", (_, id) => {
   return boardStorage.deleteBoard(id);
 });
 
+ipcMain.handle("boards:rename", (_, id, newName) => {
+  return boardStorage.renameBoard(id, newName);
+});
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
+    frame: false,
     webPreferences: {
-  preload: require("path").join(__dirname, "preload.cjs"),
-  contextIsolation: true,
-  nodeIntegration: false,
-},
+      preload: require("path").join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
   });
 
   win.loadURL("http://localhost:3001");
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
+  
   createWindow();
 
   app.on("activate", () => {

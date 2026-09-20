@@ -7,6 +7,7 @@ declare global {
       save: (id: string, data: string) => Promise<string>;
       load: (id: string) => Promise<any>;
       delete: (id: string) => Promise<void>;
+      rename: (id: string, newName: string) => Promise<string>;
     };
   }
 }

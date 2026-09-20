@@ -5,4 +5,6 @@ contextBridge.exposeInMainWorld("boardStorage", {
   save: (id, data) => ipcRenderer.invoke("boards:save", id, data),
   load: (id) => ipcRenderer.invoke("boards:load", id),
   delete: (id) => ipcRenderer.invoke("boards:delete", id),
+  rename: (id, newName) =>
+  ipcRenderer.invoke("boards:rename", id, newName),
 });

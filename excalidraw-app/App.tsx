@@ -1,4 +1,3 @@
-
 import {
   Excalidraw,
   LiveCollaborationTrigger,
@@ -154,17 +153,7 @@ import type { CollabAPI } from "./collab/Collab";
 
 import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
 
-const saveCurrentBoard = async () => {
-  const data = serializeAsJSON(
-    excalidrawAPI.getSceneElements(),
-    excalidrawAPI.getAppState(),
-    excalidrawAPI.getFiles(),
-    "local",
-  );
-
-  await window.boardStorage.save("test-board", data);
-};
-
+import { BoardDashboard } from "./BoardDashboard";
 
 polyfill();
 
@@ -245,7 +234,7 @@ const initializeScene = async (opts: {
   );
   const externalUrlMatch = window.location.hash.match(/^#url=(.*)$/);
 
-  const localDataState = importFromLocalStorage();
+  const localDataState = window.boardStorage ? null : importFromLocalStorage();
 
   let scene: Omit<
     RestoredDataState,
@@ -387,7 +376,7 @@ const initializeScene = async (opts: {
   return { scene: null, isExternalScene: false };
 };
 
-const ExcalidrawWrapper = () => {
+const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
   const excalidrawAPI = useExcalidrawAPI();
 
   const [errorMessage, setErrorMessage] = useState("");
@@ -578,6 +567,31 @@ const ExcalidrawWrapper = () => {
     }
 
     initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
+      if (window.boardStorage) {
+        try {
+          const parsedData = await window.boardStorage.load(boardId);
+
+          const boardScene = {
+            ...data.scene,
+            elements: restoreElements(parsedData.elements, null, {
+              repairBindings: true,
+            }),
+            appState: restoreAppState(parsedData.appState, null),
+          };
+
+          if (parsedData.files) {
+            excalidrawAPI.addFiles(Object.values(parsedData.files));
+          }
+
+          console.log("[BoardStorage] Loaded test-board");
+
+          initialStatePromiseRef.current.promise.resolve(boardScene);
+          return;
+        } catch (error) {
+          console.log("[BoardStorage] No saved test-board yet");
+        }
+      }
+
       loadImages(data, /* isInitialLoad */ true);
       initialStatePromiseRef.current.promise.resolve(data.scene);
     });
@@ -618,7 +632,10 @@ const ExcalidrawWrapper = () => {
         ((collabAPI && !collabAPI.isCollaborating()) || isCollabDisabled)
       ) {
         // don't sync if local state is newer or identical to browser state
-        if (isBrowserStorageStateNewer(STORAGE_KEYS.VERSION_DATA_STATE)) {
+        if (
+          !window.boardStorage &&
+          isBrowserStorageStateNewer(STORAGE_KEYS.VERSION_DATA_STATE)
+        ) {
           const localDataState = importFromLocalStorage();
           const username = importUsernameFromLocalStorage();
           setLangCode(getPreferredLanguage());
@@ -700,7 +717,14 @@ const ExcalidrawWrapper = () => {
         false,
       );
     };
-  }, [isCollabDisabled, collabAPI, excalidrawAPI, setLangCode, loadImages]);
+  }, [
+  isCollabDisabled,
+  collabAPI,
+  excalidrawAPI,
+  setLangCode,
+  loadImages,
+  boardId,
+]);
 
   useEffect(() => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
@@ -732,6 +756,12 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
+    if (window.boardStorage) {
+      const data = serializeAsJSON(elements, appState, files, "local");
+
+      window.boardStorage.save(boardId, data);
+    }
+
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);
     }
@@ -1323,11 +1353,21 @@ const ExcalidrawApp = () => {
     return <ExcalidrawPlusIframeExport />;
   }
 
+  const [boardId, setBoardId] = useState<string | null>(null);
+
+  if (!boardId) {
+  return (
+    <BoardDashboard
+      onOpenBoard={(id) => setBoardId(id)}
+    />
+  );
+}
+
   return (
     <TopErrorBoundary>
       <Provider store={appJotaiStore}>
         <ExcalidrawAPIProvider>
-          <ExcalidrawWrapper />
+          <ExcalidrawWrapper boardId={boardId} />
         </ExcalidrawAPIProvider>
       </Provider>
     </TopErrorBoundary>
