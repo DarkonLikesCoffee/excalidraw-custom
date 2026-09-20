@@ -1,0 +1,107 @@
+.window-title-bar {
+  position: relative;
+  z-index: 10000;
+  display: flex;
+  flex-shrink: 0;
+  width: 100%;
+  height: 36px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e5e7;
+  user-select: none;
+}
+
+.window-title-bar__drag-area {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  padding-left: 14px;
+  -webkit-app-region: drag;
+}
+
+.window-title-bar__title {
+  color: #333333;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.window-title-bar__controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.window-title-bar__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #444444;
+  cursor: pointer;
+}
+
+.window-title-bar__button:hover {
+  background: #eeeeef;
+}
+
+.window-title-bar__button svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-linecap: square;
+}
+
+.window-title-bar__close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.window-title-bar__dashboard {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin: 0 12px 0 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #555;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.window-title-bar__dashboard:hover {
+  background: #eeeeef;
+  color: #222;
+}
+
+.window-title-bar__dashboard svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

@@ -8,3 +8,8 @@ contextBridge.exposeInMainWorld("boardStorage", {
   rename: (id, newName) =>
   ipcRenderer.invoke("boards:rename", id, newName),
 });
+contextBridge.exposeInMainWorld("windowControls", {
+  minimize: () => ipcRenderer.send("window:minimize"),
+  maximize: () => ipcRenderer.send("window:maximize"),
+  close: () => ipcRenderer.send("window:close"),
+});

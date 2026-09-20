@@ -1,5 +1,8 @@
 .board-dashboard {
-  min-height: 100vh;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: auto;
   background: #f7f7f8;
   color: #1f1f1f;
   font-family:

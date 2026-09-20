@@ -9,5 +9,10 @@ declare global {
       delete: (id: string) => Promise<void>;
       rename: (id: string, newName: string) => Promise<string>;
     };
+    windowControls: {
+      minimize: () => void;
+      maximize: () => void;
+      close: () => void;
+    };
   }
 }

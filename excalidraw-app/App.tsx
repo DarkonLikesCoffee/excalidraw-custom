@@ -155,6 +155,8 @@ import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
 
 import { BoardDashboard } from "./BoardDashboard";
 
+import { WindowTitleBar } from "./WindowTitleBar";
+
 polyfill();
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
@@ -718,13 +720,13 @@ const ExcalidrawWrapper = ({ boardId }: { boardId: string }) => {
       );
     };
   }, [
-  isCollabDisabled,
-  collabAPI,
-  excalidrawAPI,
-  setLangCode,
-  loadImages,
-  boardId,
-]);
+    isCollabDisabled,
+    collabAPI,
+    excalidrawAPI,
+    setLangCode,
+    loadImages,
+    boardId,
+  ]);
 
   useEffect(() => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
@@ -1355,22 +1357,41 @@ const ExcalidrawApp = () => {
 
   const [boardId, setBoardId] = useState<string | null>(null);
 
-  if (!boardId) {
   return (
-    <BoardDashboard
-      onOpenBoard={(id) => setBoardId(id)}
-    />
-  );
-}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        width: "100vw",
+        height: "100vh",
+        overflow: "hidden",
+      }}
+    >
+      <WindowTitleBar
+        showDashboardButton={Boolean(boardId)}
+        onDashboard={() => setBoardId(null)}
+      />
 
-  return (
-    <TopErrorBoundary>
-      <Provider store={appJotaiStore}>
-        <ExcalidrawAPIProvider>
-          <ExcalidrawWrapper boardId={boardId} />
-        </ExcalidrawAPIProvider>
-      </Provider>
-    </TopErrorBoundary>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+        }}
+      >
+        {!boardId ? (
+          <BoardDashboard onOpenBoard={(id) => setBoardId(id)} />
+        ) : (
+          <TopErrorBoundary>
+            <Provider store={appJotaiStore}>
+              <ExcalidrawAPIProvider>
+                <ExcalidrawWrapper boardId={boardId} />
+              </ExcalidrawAPIProvider>
+            </Provider>
+          </TopErrorBoundary>
+        )}
+      </div>
+    </div>
   );
 };
 
