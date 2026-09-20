@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./board-dashboard.css";
+import { BoardThumbnail } from "./BoardThumbnail";
 
 type Board = {
   id: string;
@@ -80,18 +81,14 @@ const validateBoardName = (
   return null;
 };
 
-export const BoardDashboard = ({
-  onOpenBoard,
-}: BoardDashboardProps) => {
+export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
   const [boards, setBoards] = useState<Board[]>([]);
 
-  const [renamingBoard, setRenamingBoard] =
-    useState<Board | null>(null);
+  const [renamingBoard, setRenamingBoard] = useState<Board | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
 
-  const [deletingBoard, setDeletingBoard] =
-    useState<Board | null>(null);
+  const [deletingBoard, setDeletingBoard] = useState<Board | null>(null);
 
   const [creatingBoard, setCreatingBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
@@ -135,11 +132,7 @@ export const BoardDashboard = ({
       return;
     }
 
-    const error = validateBoardName(
-      renameValue,
-      boards,
-      renamingBoard.id,
-    );
+    const error = validateBoardName(renameValue, boards, renamingBoard.id);
 
     if (error) {
       setRenameError(error);
@@ -148,10 +141,7 @@ export const BoardDashboard = ({
 
     const newName = renameValue.trim();
 
-    await window.boardStorage.rename(
-      renamingBoard.id,
-      newName,
-    );
+    await window.boardStorage.rename(renamingBoard.id, newName);
 
     const updatedBoards = await window.boardStorage.list();
 
@@ -197,9 +187,7 @@ export const BoardDashboard = ({
 
             <h2>No boards yet</h2>
 
-            <p>
-              Create your first board to get started.
-            </p>
+            <p>Create your first board to get started.</p>
 
             <button
               className="board-dashboard__primary-button"
@@ -211,16 +199,13 @@ export const BoardDashboard = ({
         ) : (
           <div className="board-grid">
             {boards.map((board) => (
-              <article
-                className="board-card"
-                key={board.id}
-              >
+              <article className="board-card" key={board.id}>
                 <button
-                  className="board-card__preview"
+                  className="board-card__preview-button"
                   onClick={() => onOpenBoard(board.id)}
                   aria-label={`Open ${board.name}`}
                 >
-                  <span>✎</span>
+                  <BoardThumbnail boardId={board.id} />
                 </button>
 
                 <div className="board-card__content">
@@ -232,25 +217,15 @@ export const BoardDashboard = ({
                   </button>
 
                   <p className="board-card__date">
-                    {new Date(
-                      board.updatedAt,
-                    ).toLocaleString()}
+                    {new Date(board.updatedAt).toLocaleString()}
                   </p>
 
                   <div className="board-card__actions">
-                    <button
-                      onClick={() =>
-                        openRenameDialog(board)
-                      }
-                    >
+                    <button onClick={() => openRenameDialog(board)}>
                       Rename
                     </button>
 
-                    <button
-                      onClick={() =>
-                        setDeletingBoard(board)
-                      }
-                    >
+                    <button onClick={() => setDeletingBoard(board)}>
                       Delete
                     </button>
                   </div>
@@ -289,23 +264,12 @@ export const BoardDashboard = ({
               />
             </label>
 
-            {createError && (
-              <p className="dialog__error">
-                {createError}
-              </p>
-            )}
+            {createError && <p className="dialog__error">{createError}</p>}
 
             <div className="dialog__actions">
-              <button
-                onClick={() => setCreatingBoard(false)}
-              >
-                Cancel
-              </button>
+              <button onClick={() => setCreatingBoard(false)}>Cancel</button>
 
-              <button
-                className="dialog__primary"
-                onClick={createBoard}
-              >
+              <button className="dialog__primary" onClick={createBoard}>
                 Create
               </button>
             </div>
@@ -340,25 +304,12 @@ export const BoardDashboard = ({
               />
             </label>
 
-            {renameError && (
-              <p className="dialog__error">
-                {renameError}
-              </p>
-            )}
+            {renameError && <p className="dialog__error">{renameError}</p>}
 
             <div className="dialog__actions">
-              <button
-                onClick={() =>
-                  setRenamingBoard(null)
-                }
-              >
-                Cancel
-              </button>
+              <button onClick={() => setRenamingBoard(null)}>Cancel</button>
 
-              <button
-                className="dialog__primary"
-                onClick={renameBoard}
-              >
+              <button className="dialog__primary" onClick={renameBoard}>
                 Rename
               </button>
             </div>
@@ -378,16 +329,9 @@ export const BoardDashboard = ({
             </p>
 
             <div className="dialog__actions">
-              <button
-                onClick={() => setDeletingBoard(null)}
-              >
-                Cancel
-              </button>
+              <button onClick={() => setDeletingBoard(null)}>Cancel</button>
 
-              <button
-                className="dialog__danger"
-                onClick={deleteBoard}
-              >
+              <button className="dialog__danger" onClick={deleteBoard}>
                 Delete
               </button>
             </div>
