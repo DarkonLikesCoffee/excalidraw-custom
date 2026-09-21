@@ -130,6 +130,20 @@ export const BoardDashboard = ({
     }
   });
 
+  const [boardView, setBoardView] = useState<"grid" | "list">(() => {
+    try {
+      const stored = localStorage.getItem("excalidraw-custom-board-view");
+      return stored === "list" ? "list" : "grid";
+    } catch {
+      return "grid";
+    }
+  });
+
+  const changeBoardView = (view: "grid" | "list") => {
+    setBoardView(view);
+    localStorage.setItem("excalidraw-custom-board-view", view);
+  };
+
   const toggleFavorite = (boardId: string) => {
     setFavoriteBoardIds((current) => {
       const next = new Set(current);
@@ -578,6 +592,65 @@ export const BoardDashboard = ({
               <option value="name-asc">Name A → Z</option>
               <option value="name-desc">Name Z → A</option>
             </select>
+
+            <div
+              role="group"
+              aria-label="Board view"
+              style={{
+                display: "flex",
+                border: "1px solid var(--default-border-color, #d9d9d9)",
+                borderRadius: "8px",
+                overflow: "hidden",
+                flex: "0 0 auto",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => changeBoardView("grid")}
+                aria-label="Grid view"
+                aria-pressed={boardView === "grid"}
+                title="Grid view"
+                style={{
+                  width: "40px",
+                  height: "38px",
+                  padding: 0,
+                  border: 0,
+                  borderRight: "1px solid var(--default-border-color, #d9d9d9)",
+                  background:
+                    boardView === "grid"
+                      ? "var(--button-gray-2, #e9e9e9)"
+                      : "var(--island-bg-color, #fff)",
+                  color: "var(--text-primary-color, #1b1b1f)",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                }}
+              >
+                ▦
+              </button>
+
+              <button
+                type="button"
+                onClick={() => changeBoardView("list")}
+                aria-label="List view"
+                aria-pressed={boardView === "list"}
+                title="List view"
+                style={{
+                  width: "40px",
+                  height: "38px",
+                  padding: 0,
+                  border: 0,
+                  background:
+                    boardView === "list"
+                      ? "var(--button-gray-2, #e9e9e9)"
+                      : "var(--island-bg-color, #fff)",
+                  color: "var(--text-primary-color, #1b1b1f)",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                }}
+              >
+                ☰
+              </button>
+            </div>
           </div>
         )}
 
@@ -644,12 +717,32 @@ export const BoardDashboard = ({
             </button>
           </div>
         ) : (
-          <div className="board-grid">
+          <div
+            className="board-grid"
+            style={
+              boardView === "list"
+                ? {
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                  }
+                : undefined
+            }
+          >
             {filteredBoards.map((board) => (
               <article
                 className="board-card"
                 key={board.id}
-                style={{ position: "relative" }}
+                style={
+                  boardView === "list"
+                    ? {
+                        position: "relative",
+                        display: "flex",
+                        alignItems: "stretch",
+                        minHeight: "132px",
+                      }
+                    : { position: "relative" }
+                }
               >
                 <button
                   type="button"
@@ -694,11 +787,33 @@ export const BoardDashboard = ({
                   className="board-card__preview-button"
                   onClick={() => onOpenBoard(board.id)}
                   aria-label={`Open ${board.name}`}
+                  style={
+                    boardView === "list"
+                      ? {
+                          flex: "0 0 220px",
+                          width: "220px",
+                          minHeight: "132px",
+                        }
+                      : undefined
+                  }
                 >
                   <BoardThumbnail boardId={board.id} />
                 </button>
 
-                <div className="board-card__content">
+                <div
+                  className="board-card__content"
+                  style={
+                    boardView === "list"
+                      ? {
+                          flex: 1,
+                          minWidth: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "center",
+                        }
+                      : undefined
+                  }
+                >
                   <button
                     className="board-card__name"
                     onClick={() => onOpenBoard(board.id)}
