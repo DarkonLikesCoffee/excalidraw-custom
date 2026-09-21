@@ -12,6 +12,24 @@ declare global {
   type ExternalBoardOpenResult = {
     id: string;
     name: string;
+    path: string;
+    kind: "external";
+  };
+
+  type RecentBoardItem = {
+    id: string;
+    name: string;
+    path: string;
+    kind: "managed" | "external";
+    lastOpenedAt: string;
+    exists: boolean;
+  };
+
+  type RecentBoardOpenResult = {
+    id: string;
+    name: string;
+    path: string;
+    kind: "managed" | "external";
   };
 
   type BoardLoadResult = {
@@ -43,42 +61,36 @@ declare global {
   interface Window {
     boardStorage: {
       list: () => Promise<BoardStorageItem[]>;
-
       create: (name: string) => Promise<BoardStorageItem>;
-
       save: (
         id: string,
         data: string,
         expectedMtimeMs?: number | null,
         force?: boolean,
       ) => Promise<BoardSaveResult>;
-
       load: (id: string) => Promise<BoardLoadResult>;
-
       delete: (id: string) => Promise<void>;
-
       rename: (id: string, newName: string) => Promise<BoardStorageItem>;
-
       getFolder: () => Promise<string>;
-
       setFolder: (folderPath: string) => Promise<string>;
-
       chooseFolder: () => Promise<string | null>;
-
+      openExternal: () => Promise<ExternalBoardOpenResult | null>;
+      openRecent: (
+        id: string,
+        filePath: string,
+        kind: "managed" | "external",
+      ) => Promise<RecentBoardOpenResult>;
+      getRecent: () => Promise<RecentBoardItem[]>;
+      removeRecent: (filePath: string) => Promise<void>;
+      stopExternalWatch: () => Promise<void>;
       getThumbnail: (id: string) => Promise<string | null>;
-
       saveThumbnail: (id: string, dataUrl: string) => Promise<string>;
-
       onChange: (
         callback: (payload: {
           eventType: string;
           filename: string | null;
         }) => void,
       ) => () => void;
-
-      openExternal: () => Promise<ExternalBoardOpenResult | null>;
-
-      stopExternalWatch: () => Promise<void>;
     };
 
     windowControls: {

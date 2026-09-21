@@ -141,6 +141,7 @@ function validateBoardId(id) {
   return id;
 }
 
+
 function isExternalBoardId(id) {
   return typeof id === "string" && id.startsWith("external:");
 }
@@ -151,13 +152,11 @@ function getExternalBoardPath(id) {
   }
 
   const encodedPath = id.slice("external:".length);
-
   if (!encodedPath) {
     throw new Error("Invalid external board ID.");
   }
 
   let decodedPath;
-
   try {
     decodedPath = decodeURIComponent(encodedPath);
   } catch {
@@ -176,11 +175,7 @@ function getExternalBoardId(filePath) {
 }
 
 function getBoardFilePath(id) {
-  if (isExternalBoardId(id)) {
-    return getExternalBoardPath(id);
-  }
-
-  return getBoardPath(id);
+  return isExternalBoardId(id) ? getExternalBoardPath(id) : getBoardPath(id);
 }
 
 function openExternalBoard(filePath) {
@@ -201,14 +196,13 @@ function openExternalBoard(filePath) {
   }
 
   const id = getExternalBoardId(resolvedPath);
-
-  // Validate the file before opening it.
   loadBoard(id);
 
   return {
     id,
     name: path.basename(resolvedPath, path.extname(resolvedPath)),
     path: resolvedPath,
+    kind: "external",
   };
 }
 
@@ -469,6 +463,121 @@ function listBoards() {
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+
+function getRecentBoards() {
+  ensureInitialized();
+
+  const settings = readSettings();
+  const recentBoards = Array.isArray(settings.recentBoards)
+    ? settings.recentBoards
+    : [];
+
+  return recentBoards
+    .filter(
+      (item) =>
+        item &&
+        typeof item.id === "string" &&
+        typeof item.name === "string" &&
+        typeof item.path === "string" &&
+        typeof item.kind === "string" &&
+        typeof item.lastOpenedAt === "string",
+    )
+    .slice(0, 8)
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      path: path.resolve(item.path),
+      kind: item.kind === "managed" ? "managed" : "external",
+      lastOpenedAt: item.lastOpenedAt,
+      exists: fs.existsSync(item.path),
+    }));
+}
+
+function addRecentBoard(id) {
+  ensureInitialized();
+
+  const filePath = getBoardFilePath(id);
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  const external = isExternalBoardId(id);
+  const entry = {
+    id,
+    name: external
+      ? path.basename(filePath, path.extname(filePath))
+      : path.basename(filePath, ".excalidraw"),
+    path: path.resolve(filePath),
+    kind: external ? "external" : "managed",
+    lastOpenedAt: new Date().toISOString(),
+  };
+
+  const settings = readSettings();
+  const existing = Array.isArray(settings.recentBoards)
+    ? settings.recentBoards
+    : [];
+
+  writeSettings({
+    ...settings,
+    recentBoards: [
+      entry,
+      ...existing.filter(
+        (item) => item && path.resolve(item.path) !== entry.path,
+      ),
+    ].slice(0, 8),
+  });
+}
+
+function removeRecentBoard(filePath) {
+  ensureInitialized();
+
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return;
+  }
+
+  const target = path.resolve(filePath);
+  const settings = readSettings();
+  const existing = Array.isArray(settings.recentBoards)
+    ? settings.recentBoards
+    : [];
+
+  writeSettings({
+    ...settings,
+    recentBoards: existing.filter(
+      (item) => !item || path.resolve(item.path) !== target,
+    ),
+  });
+}
+
+function openRecentBoard(id, filePath, kind) {
+  ensureInitialized();
+
+  if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
+    throw new Error("Invalid recent board path.");
+  }
+
+  const resolvedPath = path.resolve(filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error("The recent file is no longer available.");
+  }
+
+  if (
+    kind === "managed" &&
+    path.resolve(getBoardPath(id)) === resolvedPath
+  ) {
+    loadBoard(id);
+    return {
+      id,
+      name: path.basename(resolvedPath, ".excalidraw"),
+      path: resolvedPath,
+      kind: "managed",
+    };
+  }
+
+  return openExternalBoard(resolvedPath);
+}
+
 function getBoardsFolder() {
   ensureInitialized();
   return boardsDir;
@@ -538,6 +647,10 @@ module.exports = {
   saveBoard,
   loadBoard,
   openExternalBoard,
+  getRecentBoards,
+  addRecentBoard,
+  removeRecentBoard,
+  openRecentBoard,
   deleteBoard,
   renameBoard,
   listBoards,

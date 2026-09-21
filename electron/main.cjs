@@ -8,6 +8,7 @@ let boardsWatchTimer = null;
 let externalWatcher = null;
 let externalWatchTimer = null;
 
+
 function stopExternalWatcher() {
   if (externalWatchTimer) {
     clearTimeout(externalWatchTimer);
@@ -40,11 +41,7 @@ function startExternalWatcher(filePath, boardId) {
 
       externalWatchTimer = setTimeout(() => {
         externalWatchTimer = null;
-
-        broadcastBoardsChanged({
-          eventType,
-          filename: boardId,
-        });
+        broadcastBoardsChanged({ eventType, filename: boardId });
       }, 100);
     },
   );
@@ -68,6 +65,7 @@ function stopBoardsWatcher() {
     boardsWatcher.close();
     boardsWatcher = null;
   }
+
   stopExternalWatcher();
 }
 
@@ -104,7 +102,11 @@ ipcMain.handle("boards:save", (_, id, data, expectedMtimeMs, force) =>
   boardStorage.saveBoard(id, data, expectedMtimeMs, force),
 );
 
-ipcMain.handle("boards:load", (_, id) => boardStorage.loadBoard(id));
+ipcMain.handle("boards:load", (_, id) => {
+  const result = boardStorage.loadBoard(id);
+  boardStorage.addRecentBoard(id);
+  return result;
+});
 
 ipcMain.handle("boards:delete", async (_, id) => {
   await boardStorage.deleteBoard(id);
@@ -134,36 +136,6 @@ ipcMain.handle("boards:choose-folder", async () => {
   }
 
   return result.filePaths[0];
-});
-
-ipcMain.handle("boards:open-external", async () => {
-  const result = await dialog.showOpenDialog({
-    title: "Open Excalidraw File",
-    properties: ["openFile"],
-    filters: [
-      {
-        name: "Excalidraw files",
-        extensions: ["excalidraw"],
-      },
-    ],
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return null;
-  }
-
-  const opened = boardStorage.openExternalBoard(result.filePaths[0]);
-
-  startExternalWatcher(opened.path, opened.id);
-
-  return {
-    id: opened.id,
-    name: opened.name,
-  };
-});
-
-ipcMain.handle("boards:stop-external-watch", () => {
-  stopExternalWatcher();
 });
 
 ipcMain.handle("boards:get-thumbnail", (_, id) =>
@@ -244,4 +216,56 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+
+ipcMain.handle("boards:open-external", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Open Excalidraw File",
+    properties: ["openFile"],
+    filters: [{ name: "Excalidraw files", extensions: ["excalidraw"] }],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const opened = boardStorage.openExternalBoard(result.filePaths[0]);
+  boardStorage.addRecentBoard(opened.id);
+  startExternalWatcher(opened.path, opened.id);
+
+  return {
+    id: opened.id,
+    name: opened.name,
+    path: opened.path,
+    kind: opened.kind,
+  };
+});
+
+ipcMain.handle("boards:open-recent", (_, id, filePath, kind) => {
+  const opened = boardStorage.openRecentBoard(id, filePath, kind);
+  boardStorage.addRecentBoard(opened.id);
+
+  if (opened.kind === "external") {
+    startExternalWatcher(opened.path, opened.id);
+  } else {
+    stopExternalWatcher();
+  }
+
+  return {
+    id: opened.id,
+    name: opened.name,
+    path: opened.path,
+    kind: opened.kind,
+  };
+});
+
+ipcMain.handle("boards:get-recent", () => boardStorage.getRecentBoards());
+
+ipcMain.handle("boards:remove-recent", (_, filePath) => {
+  boardStorage.removeRecentBoard(filePath);
+});
+
+ipcMain.handle("boards:stop-external-watch", () => {
+  stopExternalWatcher();
 });

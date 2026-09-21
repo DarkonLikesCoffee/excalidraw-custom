@@ -100,10 +100,19 @@ export const BoardDashboard = ({
   const [changingFolder, setChangingFolder] = useState(false);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [recentBoards, setRecentBoards] = useState<RecentBoardItem[]>([]);
+  const [missingRecentBoard, setMissingRecentBoard] =
+    useState<RecentBoardItem | null>(null);
 
   const refreshBoards = useCallback(async () => {
     try {
-      setBoards(await window.boardStorage.list());
+      const [boardList, recentList] = await Promise.all([
+        window.boardStorage.list(),
+        window.boardStorage.getRecent(),
+      ]);
+
+      setBoards(boardList);
+      setRecentBoards(recentList);
       setDashboardError(null);
     } catch (error) {
       setDashboardError(
@@ -243,7 +252,7 @@ export const BoardDashboard = ({
     }
   };
 
-    const openExternalFile = async () => {
+  const openExternalFile = async () => {
     try {
       const file = await window.boardStorage.openExternal();
 
@@ -261,6 +270,44 @@ export const BoardDashboard = ({
     }
   };
 
+  const openRecentBoard = async (recent: RecentBoardItem) => {
+    if (!recent.exists) {
+      setMissingRecentBoard(recent);
+      return;
+    }
+
+    try {
+      const opened = await window.boardStorage.openRecent(
+        recent.id,
+        recent.path,
+        recent.kind,
+      );
+
+      if (opened.kind === "managed") {
+        onOpenBoard(opened.id);
+      } else {
+        await onOpenExternalFile(opened);
+      }
+    } catch (error) {
+      setDashboardError(
+        error instanceof Error
+          ? error.message
+          : "Failed to open recent file.",
+      );
+      await refreshBoards();
+    }
+  };
+
+  const removeMissingRecentBoard = async () => {
+    if (!missingRecentBoard) {
+      return;
+    }
+
+    await window.boardStorage.removeRecent(missingRecentBoard.path);
+    setMissingRecentBoard(null);
+    await refreshBoards();
+  };
+
   return (
     <div className="board-dashboard">
       <div className="board-dashboard__container">
@@ -270,7 +317,7 @@ export const BoardDashboard = ({
             <p>Your Excalidraw boards</p>
           </div>
 
-                    <div className="board-dashboard__header-actions">
+          <div className="board-dashboard__header-actions">
             <button
               className="board-dashboard__settings-button"
               onClick={() => {
@@ -300,6 +347,53 @@ export const BoardDashboard = ({
         </header>
 
         {dashboardError && <p className="dialog__error">{dashboardError}</p>}
+
+        {recentBoards.length > 0 && (
+          <section className="board-dashboard__recent">
+            <div className="board-dashboard__section-header">
+              <div>
+                <h2>Recent</h2>
+                <p>Files you opened recently</p>
+              </div>
+            </div>
+
+            <div className="board-dashboard__recent-list">
+              {recentBoards.map((recent) => (
+                <button
+                  key={recent.path}
+                  className={`board-dashboard__recent-item${
+                    recent.exists
+                      ? ""
+                      : " board-dashboard__recent-item--missing"
+                  }`}
+                  onClick={() => void openRecentBoard(recent)}
+                >
+                  <span className="board-dashboard__recent-icon">✎</span>
+
+                  <span className="board-dashboard__recent-info">
+                    <span className="board-dashboard__recent-name">
+                      {recent.name}
+                    </span>
+
+                    <span className="board-dashboard__recent-path">
+                      {recent.exists ? recent.path : "File not found"}
+                    </span>
+                  </span>
+
+                  <span className="board-dashboard__recent-time">
+                    {new Date(recent.lastOpenedAt).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {boards.length > 0 && (
+          <div className="board-dashboard__boards-heading">
+            <h2>My Boards</h2>
+          </div>
+        )}
 
         {boards.length === 0 ? (
           <div className="board-dashboard__empty">
@@ -523,6 +617,35 @@ export const BoardDashboard = ({
                 onClick={() => void deleteBoard()}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {missingRecentBoard && (
+        <div className="dialog-backdrop">
+          <div className="dialog">
+            <h2>File not found</h2>
+
+            <p className="dialog__message">
+              This file is no longer available at its original location.
+            </p>
+
+            <div className="board-dashboard__missing-path">
+              {missingRecentBoard.path}
+            </div>
+
+            <div className="dialog__actions">
+              <button onClick={() => setMissingRecentBoard(null)}>
+                Cancel
+              </button>
+
+              <button
+                className="dialog__danger"
+                onClick={() => void removeMissingRecentBoard()}
+              >
+                Remove from Recent
               </button>
             </div>
           </div>

@@ -9,10 +9,14 @@ contextBridge.exposeInMainWorld("boardStorage", {
   delete: (id) => ipcRenderer.invoke("boards:delete", id),
   rename: (id, newName) => ipcRenderer.invoke("boards:rename", id, newName),
   getFolder: () => ipcRenderer.invoke("boards:get-folder"),
-  setFolder: (folderPath) =>
-    ipcRenderer.invoke("boards:set-folder", folderPath),
+  setFolder: (folderPath) => ipcRenderer.invoke("boards:set-folder", folderPath),
   chooseFolder: () => ipcRenderer.invoke("boards:choose-folder"),
   openExternal: () => ipcRenderer.invoke("boards:open-external"),
+  openRecent: (id, filePath, kind) =>
+    ipcRenderer.invoke("boards:open-recent", id, filePath, kind),
+  getRecent: () => ipcRenderer.invoke("boards:get-recent"),
+  removeRecent: (filePath) =>
+    ipcRenderer.invoke("boards:remove-recent", filePath),
   stopExternalWatch: () => ipcRenderer.invoke("boards:stop-external-watch"),
   getThumbnail: (id) => ipcRenderer.invoke("boards:get-thumbnail", id),
   saveThumbnail: (id, dataUrl) =>
