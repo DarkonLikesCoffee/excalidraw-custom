@@ -299,6 +299,45 @@ function getFileInfo(filePath) {
   };
 }
 
+function duplicateBoard(id) {
+  ensureInitialized();
+
+  const sourcePath = getBoardPath(id);
+
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`Board not found: ${id}`);
+  }
+
+  const sourceData = fs.readFileSync(sourcePath, "utf-8");
+  parseBoardData(sourceData);
+
+  const boardName = getUniqueBoardName(`${id} copy`);
+  const targetPath = getBoardPath(boardName);
+
+  const tempPath = `${targetPath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`;
+
+  try {
+    fs.copyFileSync(sourcePath, tempPath);
+    fs.renameSync(tempPath, targetPath);
+  } catch (error) {
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+
+    throw new Error(`Failed to duplicate board "${id}": ${error.message}`);
+  }
+
+  const info = getFileInfo(targetPath);
+
+  return {
+    id: boardName,
+    name: boardName,
+    updatedAt: new Date(info.mtimeMs).toISOString(),
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+  };
+}
+
 function createBoard(name) {
   ensureInitialized();
 
@@ -644,6 +683,7 @@ module.exports = {
   getBoardsFolder,
   setBoardsFolder,
   createBoard,
+  duplicateBoard,
   saveBoard,
   loadBoard,
   openExternalBoard,

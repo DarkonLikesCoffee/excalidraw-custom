@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("boardStorage", {
   list: () => ipcRenderer.invoke("boards:list"),
   create: (name) => ipcRenderer.invoke("boards:create", name),
+  duplicate: (id) => ipcRenderer.invoke("boards:duplicate", id),
   save: (id, data, expectedMtimeMs, force = false) =>
     ipcRenderer.invoke("boards:save", id, data, expectedMtimeMs, force),
   load: (id) => ipcRenderer.invoke("boards:load", id),

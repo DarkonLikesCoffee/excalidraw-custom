@@ -62,6 +62,7 @@ declare global {
     boardStorage: {
       list: () => Promise<BoardStorageItem[]>;
       create: (name: string) => Promise<BoardStorageItem>;
+      duplicate: (id: string) => Promise<BoardStorageItem>;
       save: (
         id: string,
         data: string,

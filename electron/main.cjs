@@ -98,6 +98,8 @@ ipcMain.handle("boards:list", () => boardStorage.listBoards());
 
 ipcMain.handle("boards:create", (_, name) => boardStorage.createBoard(name));
 
+ipcMain.handle("boards:duplicate", (_, id) => boardStorage.duplicateBoard(id));
+
 ipcMain.handle("boards:save", (_, id, data, expectedMtimeMs, force) =>
   boardStorage.saveBoard(id, data, expectedMtimeMs, force),
 );

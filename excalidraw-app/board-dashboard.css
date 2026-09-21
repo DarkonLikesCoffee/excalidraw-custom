@@ -119,6 +119,7 @@
 
 .board-card__actions button {
   flex: 1;
+  min-width: 0;
   border: 1px solid #dedee2;
   border-radius: 7px;
   padding: 7px 10px;
@@ -566,4 +567,9 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.board-card__actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }

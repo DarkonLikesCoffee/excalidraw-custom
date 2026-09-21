@@ -91,6 +91,9 @@ export const BoardDashboard = ({
   const [renameError, setRenameError] = useState<string | null>(null);
 
   const [deletingBoard, setDeletingBoard] = useState<Board | null>(null);
+  const [duplicatingBoardId, setDuplicatingBoardId] = useState<string | null>(
+    null,
+  );
 
   const [creatingBoard, setCreatingBoard] = useState(false);
   const [newBoardName, setNewBoardName] = useState("");
@@ -204,6 +207,26 @@ export const BoardDashboard = ({
       setRenameError(
         error instanceof Error ? error.message : "Failed to rename board.",
       );
+    }
+  };
+
+  const duplicateBoard = async (board: Board) => {
+    try {
+      setDuplicatingBoardId(board.id);
+      setDashboardError(null);
+
+      const duplicate = await window.boardStorage.duplicate(board.id);
+
+      await refreshBoards();
+      onOpenBoard(duplicate.id);
+    } catch (error) {
+      setDashboardError(
+        error instanceof Error
+          ? error.message
+          : "Failed to duplicate board.",
+      );
+    } finally {
+      setDuplicatingBoardId(null);
     }
   };
 
@@ -435,6 +458,15 @@ export const BoardDashboard = ({
                   </p>
 
                   <div className="board-card__actions">
+                    <button
+                      onClick={() => void duplicateBoard(board)}
+                      disabled={duplicatingBoardId === board.id}
+                    >
+                      {duplicatingBoardId === board.id
+                        ? "Duplicating..."
+                        : "Duplicate"}
+                    </button>
+
                     <button onClick={() => openRenameDialog(board)}>
                       Rename
                     </button>
