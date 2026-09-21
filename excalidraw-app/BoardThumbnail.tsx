@@ -21,7 +21,18 @@ export const BoardThumbnail = ({ boardId }: BoardThumbnailProps) => {
       setThumbnail(null);
 
       try {
-        const data = await window.boardStorage.load(boardId);
+        const cached = await window.boardStorage.getThumbnail(boardId);
+
+        if (cached) {
+          if (!cancelled) {
+            setThumbnail(cached);
+            setLoading(false);
+          }
+          return;
+        }
+
+        const loadedBoard = await window.boardStorage.load(boardId);
+        const data = loadedBoard.data;
 
         if (!data.elements || data.elements.length === 0) {
           return;
@@ -46,13 +57,18 @@ export const BoardThumbnail = ({ boardId }: BoardThumbnailProps) => {
           {
             exportBackground: true,
             viewBackgroundColor:
-              data.appState?.viewBackgroundColor || "#ffffff",
+              typeof data.appState?.viewBackgroundColor === "string"
+                ? data.appState.viewBackgroundColor
+                : "#ffffff",
             exportPadding: 20,
           },
         );
 
+        const dataUrl = canvas.toDataURL("image/png");
+
         if (!cancelled) {
-          setThumbnail(canvas.toDataURL("image/png"));
+          setThumbnail(dataUrl);
+          await window.boardStorage.saveThumbnail(boardId, dataUrl);
         }
       } catch (error) {
         console.error(
@@ -66,7 +82,7 @@ export const BoardThumbnail = ({ boardId }: BoardThumbnailProps) => {
       }
     };
 
-    generateThumbnail();
+    void generateThumbnail();
 
     return () => {
       cancelled = true;

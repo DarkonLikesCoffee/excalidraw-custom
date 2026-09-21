@@ -1,12 +1,58 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { shell } = require("electron");
 
+let userDataDir = null;
 let boardsDir = null;
+let settingsPath = null;
+let thumbnailDir = null;
+
+const SETTINGS_FILENAME = "settings.json";
+const DEFAULT_BOARDS_FOLDER_NAME = "Excalidraw Custom";
 
 function initializeStorage(userDataPath) {
-  boardsDir = path.join(userDataPath, "boards");
+  userDataDir = userDataPath;
+  settingsPath = path.join(userDataDir, SETTINGS_FILENAME);
+  thumbnailDir = path.join(userDataDir, "cache", "thumbnails");
+
+  fs.mkdirSync(userDataDir, { recursive: true });
+  fs.mkdirSync(thumbnailDir, { recursive: true });
+
+  const settings = readSettings();
+  boardsDir =
+    typeof settings.boardsFolder === "string" && settings.boardsFolder.trim()
+      ? path.resolve(settings.boardsFolder)
+      : path.join(require("electron").app.getPath("documents"), DEFAULT_BOARDS_FOLDER_NAME);
+
   fs.mkdirSync(boardsDir, { recursive: true });
+}
+
+function readSettings() {
+  if (!settingsPath || !fs.existsSync(settingsPath)) {
+    return {};
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeSettings(settings) {
+  const tempPath = `${settingsPath}.${process.pid}.${Date.now()}.tmp`;
+
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(settings, null, 2), "utf-8");
+    fs.renameSync(tempPath, settingsPath);
+  } catch (error) {
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+    throw new Error(`Failed to save settings: ${error.message}`);
+  }
 }
 
 function ensureInitialized() {
@@ -15,13 +61,65 @@ function ensureInitialized() {
   }
 }
 
-function validateBoardId(id) {
-  if (typeof id !== "string") {
-    throw new Error("Board ID must be a string.");
+function validateBoardName(name) {
+  if (typeof name !== "string") {
+    throw new Error("Board name must be a string.");
   }
 
-  if (!id.trim()) {
-    throw new Error("Board ID cannot be empty.");
+  const trimmed = name.trim();
+
+  if (!trimmed) {
+    throw new Error("Board name cannot be empty.");
+  }
+
+  if (trimmed.length > 100) {
+    throw new Error("Board name is too long.");
+  }
+
+  if (/[<>:"/\\|?*\x00-\x1F]/.test(trimmed)) {
+    throw new Error('Board name contains invalid filename characters: < > : " / \\ | ? *');
+  }
+
+  if (trimmed.endsWith(".") || trimmed.endsWith(" ")) {
+    throw new Error("Board name cannot end with a space or period.");
+  }
+
+  const reservedName = trimmed.split(".")[0].toUpperCase();
+  if (
+    new Set([
+      "CON",
+      "PRN",
+      "AUX",
+      "NUL",
+      "COM1",
+      "COM2",
+      "COM3",
+      "COM4",
+      "COM5",
+      "COM6",
+      "COM7",
+      "COM8",
+      "COM9",
+      "LPT1",
+      "LPT2",
+      "LPT3",
+      "LPT4",
+      "LPT5",
+      "LPT6",
+      "LPT7",
+      "LPT8",
+      "LPT9",
+    ]).has(reservedName)
+  ) {
+    throw new Error(`"${trimmed}" is not a valid Windows filename.`);
+  }
+
+  return trimmed;
+}
+
+function validateBoardId(id) {
+  if (typeof id !== "string" || !id.trim()) {
+    throw new Error("Board ID must be a non-empty string.");
   }
 
   if (id === "." || id === "..") {
@@ -43,74 +141,78 @@ function validateBoardId(id) {
   return id;
 }
 
-function validateBoardName(name) {
-  if (typeof name !== "string") {
-    throw new Error("Board name must be a string.");
-  }
-
-  const trimmed = name.trim();
-
-  if (!trimmed) {
-    throw new Error("Board name cannot be empty.");
-  }
-
-  if (trimmed.length > 100) {
-    throw new Error("Board name is too long.");
-  }
-
-  return trimmed;
-}
-
 function getBoardPath(id) {
   ensureInitialized();
 
   const safeId = validateBoardId(id);
   const filePath = path.join(boardsDir, `${safeId}.excalidraw`);
-
   const resolvedBoardsDir = path.resolve(boardsDir);
   const resolvedFilePath = path.resolve(filePath);
 
-  if (
-    !resolvedFilePath.startsWith(`${resolvedBoardsDir}${path.sep}`)
-  ) {
+  if (!resolvedFilePath.startsWith(`${resolvedBoardsDir}${path.sep}`)) {
     throw new Error("Invalid board path.");
   }
 
   return filePath;
 }
 
-function generateBoardId() {
-  return crypto.randomUUID();
+function getBoardIdFromFilename(filename) {
+  if (!filename.endsWith(".excalidraw")) {
+    return null;
+  }
+
+  return filename.slice(0, -".excalidraw".length);
 }
 
-function validateBoardData(data) {
-  if (!data || typeof data !== "object") {
+function getUniqueBoardName(requestedName) {
+  const baseName = validateBoardName(requestedName);
+  const existingNames = new Set(
+    fs
+      .readdirSync(boardsDir)
+      .filter((file) => file.toLowerCase().endsWith(".excalidraw"))
+      .map((file) => path.basename(file, ".excalidraw").toLowerCase()),
+  );
+
+  if (!existingNames.has(baseName.toLowerCase())) {
+    return baseName;
+  }
+
+  let counter = 2;
+  while (existingNames.has(`${baseName} ${counter}`.toLowerCase())) {
+    counter += 1;
+  }
+
+  return `${baseName} ${counter}`;
+}
+
+function parseBoardData(data) {
+  const parsed = typeof data === "string" ? JSON.parse(data) : data;
+
+  if (!parsed || typeof parsed !== "object") {
     throw new Error("Board data must be an object.");
   }
 
-  if (!Array.isArray(data.elements)) {
+  if (parsed.type !== "excalidraw") {
+    throw new Error("Invalid Excalidraw board file.");
+  }
+
+  if (!Array.isArray(parsed.elements)) {
     throw new Error("Board data is missing a valid elements array.");
   }
 
-  if (!data.appState || typeof data.appState !== "object") {
+  if (!parsed.appState || typeof parsed.appState !== "object") {
     throw new Error("Board data is missing a valid appState.");
   }
 
-  if (
-    data.board &&
-    typeof data.board === "object" &&
-    typeof data.board.id === "string" &&
-    typeof data.board.name === "string"
-  ) {
-    return data;
+  if (!parsed.files || typeof parsed.files !== "object") {
+    parsed.files = {};
   }
 
-  return data;
+  return parsed;
 }
 
-function writeBoardFile(filePath, data) {
-  const serialized = JSON.stringify(data, null, 2);
-  const tempPath = `${filePath}.tmp`;
+function atomicWrite(filePath, serialized) {
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`;
 
   try {
     fs.writeFileSync(tempPath, serialized, "utf-8");
@@ -124,72 +226,75 @@ function writeBoardFile(filePath, data) {
   }
 }
 
-function createBoard(name) {
-  ensureInitialized();
-
-  const boardName = validateBoardName(name);
-  const id = generateBoardId();
-
-  const data = {
-    type: "excalidraw",
-    version: 2,
-    source: "excalidraw-custom",
-    elements: [],
-    appState: {},
-    files: {},
-    board: {
-      id,
-      name: boardName,
-    },
-  };
-
-  const filePath = getBoardPath(id);
-
-  writeBoardFile(filePath, data);
-
+function getFileInfo(filePath) {
+  const stats = fs.statSync(filePath);
   return {
-    id,
-    name: boardName,
-    updatedAt: new Date().toISOString(),
+    mtimeMs: stats.mtimeMs,
+    size: stats.size,
   };
 }
 
-function saveBoard(id, data) {
+function createBoard(name) {
+  ensureInitialized();
+
+  const boardName = getUniqueBoardName(name);
+  const filePath = getBoardPath(boardName);
+
+  atomicWrite(
+    filePath,
+    JSON.stringify({
+      type: "excalidraw",
+      version: 2,
+      source: "https://excalidraw.com",
+      elements: [],
+      appState: {},
+      files: {},
+    }),
+  );
+
+  const info = getFileInfo(filePath);
+
+  return {
+    id: boardName,
+    name: boardName,
+    updatedAt: new Date(info.mtimeMs).toISOString(),
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+  };
+}
+
+function saveBoard(id, data, expectedMtimeMs = null, force = false) {
   const filePath = getBoardPath(id);
 
-  const parsedData =
-    typeof data === "string" ? JSON.parse(data) : data;
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Board not found: ${id}`);
+  }
 
-  const validatedData = validateBoardData(parsedData);
+  const currentInfo = getFileInfo(filePath);
 
-  const existingBoard = (() => {
-    try {
-      if (!fs.existsSync(filePath)) {
-        return null;
-      }
+  if (
+    !force &&
+    typeof expectedMtimeMs === "number" &&
+    Math.abs(currentInfo.mtimeMs - expectedMtimeMs) > 0.5
+  ) {
+    return {
+      status: "conflict",
+      currentMtimeMs: currentInfo.mtimeMs,
+      currentSize: currentInfo.size,
+    };
+  }
 
-      return JSON.parse(fs.readFileSync(filePath, "utf-8")).board;
-    } catch {
-      return null;
-    }
-  })();
+  const parsedData = parseBoardData(data);
+  atomicWrite(filePath, JSON.stringify(parsedData, null, 2));
 
-  const boardName =
-    existingBoard?.name ||
-    validatedData.board?.name ||
-    id;
+  const info = getFileInfo(filePath);
 
-  const finalData = {
-    ...validatedData,
-    board: {
-      id,
-      name: boardName,
-    },
+  return {
+    status: "saved",
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+    updatedAt: new Date(info.mtimeMs).toISOString(),
   };
-
-  writeBoardFile(filePath, finalData);
-
-  return filePath;
 }
 
 function loadBoard(id) {
@@ -200,21 +305,22 @@ function loadBoard(id) {
   }
 
   let parsedData;
-
   try {
-    parsedData = JSON.parse(
-      fs.readFileSync(filePath, "utf-8"),
-    );
+    parsedData = parseBoardData(fs.readFileSync(filePath, "utf-8"));
   } catch (error) {
-    throw new Error(
-      `Board "${id}" is corrupted or unreadable: ${error.message}`,
-    );
+    throw new Error(`Board "${id}" is corrupted or unreadable: ${error.message}`);
   }
 
-  return validateBoardData(parsedData);
+  const info = getFileInfo(filePath);
+
+  return {
+    data: parsedData,
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+  };
 }
 
-function deleteBoard(id) {
+async function deleteBoard(id) {
   const filePath = getBoardPath(id);
 
   if (!fs.existsSync(filePath)) {
@@ -222,89 +328,147 @@ function deleteBoard(id) {
   }
 
   try {
-    fs.unlinkSync(filePath);
+    await shell.trashItem(filePath);
   } catch (error) {
-    throw new Error(
-      `Failed to delete board "${id}": ${error.message}`,
-    );
+    throw new Error(`Failed to delete board "${id}": ${error.message}`);
   }
 }
 
 function renameBoard(id, newName) {
-  const filePath = getBoardPath(id);
+  const oldPath = getBoardPath(id);
 
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(oldPath)) {
     throw new Error(`Board not found: ${id}`);
   }
 
   const boardName = validateBoardName(newName);
 
-  let data;
+  const collision = fs
+    .readdirSync(boardsDir)
+    .filter((file) => file.toLowerCase().endsWith(".excalidraw"))
+    .some((file) => {
+      const existingId = getBoardIdFromFilename(file);
+      return existingId && existingId.toLowerCase() === boardName.toLowerCase() && existingId !== id;
+    });
 
-  try {
-    data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  } catch (error) {
-    throw new Error(
-      `Board "${id}" is corrupted or unreadable: ${error.message}`,
-    );
+  if (collision) {
+    throw new Error("A board with this name already exists.");
   }
 
-  data.board = {
-    id,
-    name: boardName,
-  };
+  const newPath = getBoardPath(boardName);
 
-  writeBoardFile(filePath, data);
+  if (path.resolve(oldPath) !== path.resolve(newPath)) {
+    try {
+      fs.renameSync(oldPath, newPath);
+    } catch (error) {
+      throw new Error(`Failed to rename board "${id}": ${error.message}`);
+    }
+  }
+
+  const info = getFileInfo(newPath);
 
   return {
-    id,
+    id: boardName,
     name: boardName,
+    updatedAt: new Date(info.mtimeMs).toISOString(),
+    mtimeMs: info.mtimeMs,
+    size: info.size,
   };
 }
 
 function listBoards() {
   ensureInitialized();
 
-  const files = fs
+  return fs
     .readdirSync(boardsDir)
-    .filter((file) => file.endsWith(".excalidraw"));
+    .filter((file) => file.toLowerCase().endsWith(".excalidraw"))
+    .map((file) => {
+      const id = getBoardIdFromFilename(file);
+      const filePath = getBoardPath(id);
+      const info = getFileInfo(filePath);
 
-  return files.map((file) => {
-    const id = path.basename(file, ".excalidraw");
-    const filePath = getBoardPath(id);
-    const stats = fs.statSync(filePath);
+      return {
+        id,
+        name: id,
+        updatedAt: new Date(info.mtimeMs).toISOString(),
+        mtimeMs: info.mtimeMs,
+        size: info.size,
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
 
-    let name = id;
+function getBoardsFolder() {
+  ensureInitialized();
+  return boardsDir;
+}
 
-    try {
-      const data = JSON.parse(
-        fs.readFileSync(filePath, "utf-8"),
-      );
+function setBoardsFolder(folderPath) {
+  ensureInitialized();
 
-      if (
-        data.board &&
-        typeof data.board.name === "string"
-      ) {
-        name = data.board.name;
-      }
-    } catch {
-      // Keep filename as fallback.
+  if (typeof folderPath !== "string" || !folderPath.trim()) {
+    throw new Error("Boards folder must be a non-empty path.");
+  }
+
+  const resolved = path.resolve(folderPath);
+  fs.mkdirSync(resolved, { recursive: true });
+
+  boardsDir = resolved;
+  writeSettings({ ...readSettings(), boardsFolder: resolved });
+
+  return resolved;
+}
+
+function getThumbnailKey(boardId) {
+  const filePath = getBoardPath(boardId);
+  const info = getFileInfo(filePath);
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${path.resolve(filePath)}:${info.mtimeMs}:${info.size}`)
+    .digest("hex");
+
+  return { filePath, info, key: hash };
+}
+
+function getThumbnail(boardId) {
+  try {
+    const { key } = getThumbnailKey(boardId);
+    const thumbnailPath = path.join(thumbnailDir, `${key}.png`);
+
+    if (!fs.existsSync(thumbnailPath)) {
+      return null;
     }
 
-    return {
-      id,
-      name,
-      updatedAt: stats.mtime.toISOString(),
-    };
-  });
+    return `data:image/png;base64,${fs.readFileSync(thumbnailPath).toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+function saveThumbnail(boardId, dataUrl) {
+  const { key } = getThumbnailKey(boardId);
+  const prefix = "data:image/png;base64,";
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix)) {
+    throw new Error("Invalid thumbnail data.");
+  }
+
+  const thumbnailPath = path.join(thumbnailDir, `${key}.png`);
+  const buffer = Buffer.from(dataUrl.slice(prefix.length), "base64");
+  fs.writeFileSync(thumbnailPath, buffer);
+
+  return thumbnailPath;
 }
 
 module.exports = {
   initializeStorage,
+  getBoardsFolder,
+  setBoardsFolder,
   createBoard,
   saveBoard,
   loadBoard,
   deleteBoard,
   renameBoard,
   listBoards,
+  getThumbnail,
+  saveThumbnail,
 };

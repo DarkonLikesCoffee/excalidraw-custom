@@ -1,12 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "./board-dashboard.css";
 import { BoardThumbnail } from "./BoardThumbnail";
 
-type Board = {
-  id: string;
-  name: string;
-  updatedAt: string;
-};
+type Board = BoardStorageItem;
 
 type BoardDashboardProps = {
   onOpenBoard: (boardId: string) => void;
@@ -62,9 +58,7 @@ const validateBoardName = (
     return "The name cannot end with a space or a period.";
   }
 
-  const nameWithoutExtension = trimmed.split(".")[0].toUpperCase();
-
-  if (WINDOWS_RESERVED_NAMES.has(nameWithoutExtension)) {
+  if (WINDOWS_RESERVED_NAMES.has(trimmed.split(".")[0].toUpperCase())) {
     return `"${trimmed}" is not a valid Windows filename.`;
   }
 
@@ -83,6 +77,7 @@ const validateBoardName = (
 
 export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
   const [boards, setBoards] = useState<Board[]>([]);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
 
   const [renamingBoard, setRenamingBoard] = useState<Board | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -94,9 +89,44 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
   const [newBoardName, setNewBoardName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
 
-  useEffect(() => {
-    window.boardStorage.list().then(setBoards);
+  const [boardsFolder, setBoardsFolder] = useState<string | null>(null);
+  const [changingFolder, setChangingFolder] = useState(false);
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const refreshBoards = useCallback(async () => {
+    try {
+      setBoards(await window.boardStorage.list());
+      setDashboardError(null);
+    } catch (error) {
+      setDashboardError(
+        error instanceof Error ? error.message : "Failed to load boards.",
+      );
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshBoards();
+
+    void window.boardStorage
+      .getFolder()
+      .then(setBoardsFolder)
+      .catch((error) => {
+        setFolderError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load the boards folder.",
+        );
+      });
+
+    if (!window.boardStorage.onChange) {
+      return;
+    }
+
+    return window.boardStorage.onChange(() => {
+      void refreshBoards();
+    });
+  }, [refreshBoards]);
 
   const openCreateDialog = () => {
     setNewBoardName("");
@@ -120,9 +150,7 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
       setNewBoardName("");
       setCreatingBoard(false);
 
-      const updatedBoards = await window.boardStorage.list();
-      setBoards(updatedBoards);
-
+      await refreshBoards();
       onOpenBoard(board.id);
     } catch (error) {
       setCreateError(
@@ -149,16 +177,18 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
       return;
     }
 
-    const newName = renameValue.trim();
+    try {
+      await window.boardStorage.rename(renamingBoard.id, renameValue.trim());
+      await refreshBoards();
 
-    await window.boardStorage.rename(renamingBoard.id, newName);
-
-    const updatedBoards = await window.boardStorage.list();
-
-    setBoards(updatedBoards);
-    setRenamingBoard(null);
-    setRenameValue("");
-    setRenameError(null);
+      setRenamingBoard(null);
+      setRenameValue("");
+      setRenameError(null);
+    } catch (error) {
+      setRenameError(
+        error instanceof Error ? error.message : "Failed to rename board.",
+      );
+    }
   };
 
   const deleteBoard = async () => {
@@ -166,12 +196,44 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
       return;
     }
 
-    await window.boardStorage.delete(deletingBoard.id);
+    try {
+      await window.boardStorage.delete(deletingBoard.id);
+      await refreshBoards();
+      setDeletingBoard(null);
+    } catch (error) {
+      setDashboardError(
+        error instanceof Error ? error.message : "Failed to delete board.",
+      );
+    }
+  };
 
-    const updatedBoards = await window.boardStorage.list();
+  const changeBoardsFolder = async () => {
+    try {
+      setFolderError(null);
 
-    setBoards(updatedBoards);
-    setDeletingBoard(null);
+      const selectedFolder = await window.boardStorage.chooseFolder();
+
+      if (!selectedFolder) {
+        return;
+      }
+
+      setChangingFolder(true);
+
+      const folder = await window.boardStorage.setFolder(selectedFolder);
+      const updatedBoards = await window.boardStorage.list();
+
+      setBoardsFolder(folder);
+      setBoards(updatedBoards);
+      setFolderError(null);
+    } catch (error) {
+      setFolderError(
+        error instanceof Error
+          ? error.message
+          : "Failed to change the boards folder.",
+      );
+    } finally {
+      setChangingFolder(false);
+    }
   };
 
   return (
@@ -183,13 +245,29 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
             <p>Your Excalidraw boards</p>
           </div>
 
-          <button
-            className="board-dashboard__primary-button"
-            onClick={openCreateDialog}
-          >
-            + New Board
-          </button>
+          <div className="board-dashboard__header-actions">
+            <button
+              className="board-dashboard__settings-button"
+              onClick={() => {
+                setFolderError(null);
+                setSettingsOpen(true);
+              }}
+              aria-label="Open settings"
+              title="Settings"
+            >
+              ⚙
+            </button>
+
+            <button
+              className="board-dashboard__primary-button"
+              onClick={openCreateDialog}
+            >
+              + New Board
+            </button>
+          </div>
         </header>
+
+        {dashboardError && <p className="dialog__error">{dashboardError}</p>}
 
         {boards.length === 0 ? (
           <div className="board-dashboard__empty">
@@ -246,7 +324,70 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
         )}
       </div>
 
-      {/* Create dialog */}
+      {settingsOpen && (
+        <div
+          className="dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setSettingsOpen(false);
+            }
+          }}
+        >
+          <div className="dialog board-settings-dialog">
+            <div className="board-settings-dialog__header">
+              <div>
+                <h2>Settings</h2>
+                <p>Configure where your Excalidraw boards are stored.</p>
+              </div>
+
+              <button
+                className="board-settings-dialog__close"
+                onClick={() => setSettingsOpen(false)}
+                aria-label="Close settings"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="board-settings-dialog__close-icon"
+                >
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+
+            <section className="board-settings-section">
+              <div className="board-settings-section__title">
+                <h3>Storage</h3>
+                <p>Boards are saved as standard .excalidraw files.</p>
+              </div>
+
+              <div className="board-settings-folder">
+                <div className="board-settings-folder__path">
+                  <span className="board-settings-folder__label">
+                    Boards folder
+                  </span>
+                  <span className="board-settings-folder__value">
+                    {boardsFolder || "Loading..."}
+                  </span>
+                </div>
+
+                <button
+                  className="board-settings-folder__change"
+                  onClick={() => void changeBoardsFolder()}
+                  disabled={changingFolder}
+                >
+                  {changingFolder ? "Changing..." : "Change…"}
+                </button>
+              </div>
+
+              {folderError && (
+                <p className="dialog__error">{folderError}</p>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+
       {creatingBoard && (
         <div className="dialog-backdrop">
           <div className="dialog">
@@ -263,7 +404,7 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
-                    createBoard();
+                    void createBoard();
                   }
 
                   if (event.key === "Escape") {
@@ -279,7 +420,10 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
             <div className="dialog__actions">
               <button onClick={() => setCreatingBoard(false)}>Cancel</button>
 
-              <button className="dialog__primary" onClick={createBoard}>
+              <button
+                className="dialog__primary"
+                onClick={() => void createBoard()}
+              >
                 Create
               </button>
             </div>
@@ -287,7 +431,6 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
         </div>
       )}
 
-      {/* Rename dialog */}
       {renamingBoard && (
         <div className="dialog-backdrop">
           <div className="dialog">
@@ -304,7 +447,7 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
-                    renameBoard();
+                    void renameBoard();
                   }
 
                   if (event.key === "Escape") {
@@ -319,7 +462,10 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
             <div className="dialog__actions">
               <button onClick={() => setRenamingBoard(null)}>Cancel</button>
 
-              <button className="dialog__primary" onClick={renameBoard}>
+              <button
+                className="dialog__primary"
+                onClick={() => void renameBoard()}
+              >
                 Rename
               </button>
             </div>
@@ -327,7 +473,6 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
         </div>
       )}
 
-      {/* Delete dialog */}
       {deletingBoard && (
         <div className="dialog-backdrop">
           <div className="dialog">
@@ -341,7 +486,10 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
             <div className="dialog__actions">
               <button onClick={() => setDeletingBoard(null)}>Cancel</button>
 
-              <button className="dialog__danger" onClick={deleteBoard}>
+              <button
+                className="dialog__danger"
+                onClick={() => void deleteBoard()}
+              >
                 Delete
               </button>
             </div>

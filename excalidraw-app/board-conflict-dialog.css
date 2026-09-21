@@ -1,0 +1,49 @@
+.board-conflict-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.board-conflict-dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--island-bg-color, #fff);
+  color: var(--text-primary-color, #1e1e1e);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+}
+
+.board-conflict-dialog h2 {
+  margin: 0 0 12px;
+}
+
+.board-conflict-dialog p {
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.board-conflict-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.board-conflict-actions button {
+  border: 1px solid var(--button-gray-2, #d0d0d0);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--button-gray-1, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.board-conflict-actions .board-conflict-primary {
+  border-color: var(--color-primary, #6965db);
+  background: var(--color-primary, #6965db);
+  color: #fff;
+}

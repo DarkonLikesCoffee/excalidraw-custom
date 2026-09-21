@@ -1,29 +1,103 @@
-const { app, BrowserWindow, ipcMain, Menu } = require("electron");
+const fs = require("fs");
+const path = require("path");
+const { app, BrowserWindow, ipcMain, Menu, dialog } = require("electron");
 const boardStorage = require("./storage/boards.cjs");
 
-ipcMain.handle("boards:list", () => {
-  return boardStorage.listBoards();
+let boardsWatcher = null;
+let boardsWatchTimer = null;
+
+function broadcastBoardsChanged(payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("boards:changed", payload);
+    }
+  }
+}
+
+function stopBoardsWatcher() {
+  if (boardsWatchTimer) {
+    clearTimeout(boardsWatchTimer);
+    boardsWatchTimer = null;
+  }
+
+  if (boardsWatcher) {
+    boardsWatcher.close();
+    boardsWatcher = null;
+  }
+}
+
+function startBoardsWatcher() {
+  stopBoardsWatcher();
+
+  const boardsFolder = boardStorage.getBoardsFolder();
+
+  boardsWatcher = fs.watch(
+    boardsFolder,
+    { persistent: false },
+    (eventType, filename) => {
+      if (boardsWatchTimer) {
+        clearTimeout(boardsWatchTimer);
+      }
+
+      boardsWatchTimer = setTimeout(() => {
+        boardsWatchTimer = null;
+
+        broadcastBoardsChanged({
+          eventType,
+          filename: filename ? filename.toString() : null,
+        });
+      }, 100);
+    },
+  );
+}
+
+ipcMain.handle("boards:list", () => boardStorage.listBoards());
+
+ipcMain.handle("boards:create", (_, name) => boardStorage.createBoard(name));
+
+ipcMain.handle("boards:save", (_, id, data, expectedMtimeMs, force) =>
+  boardStorage.saveBoard(id, data, expectedMtimeMs, force),
+);
+
+ipcMain.handle("boards:load", (_, id) => boardStorage.loadBoard(id));
+
+ipcMain.handle("boards:delete", async (_, id) => {
+  await boardStorage.deleteBoard(id);
 });
 
-ipcMain.handle("boards:create", (_, name) => {
-  return boardStorage.createBoard(name);
+ipcMain.handle("boards:rename", (_, id, newName) =>
+  boardStorage.renameBoard(id, newName),
+);
+
+ipcMain.handle("boards:get-folder", () => boardStorage.getBoardsFolder());
+
+ipcMain.handle("boards:set-folder", (_, folderPath) => {
+  const result = boardStorage.setBoardsFolder(folderPath);
+  startBoardsWatcher();
+  broadcastBoardsChanged({ eventType: "folder-changed", filename: null });
+  return result;
 });
 
-ipcMain.handle("boards:save", (_, id, data) => {
-  return boardStorage.saveBoard(id, data);
+ipcMain.handle("boards:choose-folder", async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ["openDirectory", "createDirectory"],
+    title: "Choose Boards Folder",
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return result.filePaths[0];
 });
 
-ipcMain.handle("boards:load", (_, id) => {
-  return boardStorage.loadBoard(id);
-});
+ipcMain.handle("boards:get-thumbnail", (_, id) =>
+  boardStorage.getThumbnail(id),
+);
 
-ipcMain.handle("boards:delete", (_, id) => {
-  return boardStorage.deleteBoard(id);
-});
-
-ipcMain.handle("boards:rename", (_, id, newName) => {
-  return boardStorage.renameBoard(id, newName);
-});
+ipcMain.handle("boards:save-thumbnail", (_, id, dataUrl) =>
+  boardStorage.saveThumbnail(id, dataUrl),
+);
 
 ipcMain.on("window:minimize", (event) => {
   BrowserWindow.fromWebContents(event.sender)?.minimize();
@@ -54,7 +128,7 @@ function createWindow() {
     frame: false,
     titleBarStyle: "hidden",
     webPreferences: {
-      preload: require("path").join(__dirname, "preload.cjs"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -78,6 +152,7 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
 
   boardStorage.initializeStorage(app.getPath("userData"));
+  startBoardsWatcher();
 
   createWindow();
 
@@ -89,6 +164,8 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  stopBoardsWatcher();
+
   if (process.platform !== "darwin") {
     app.quit();
   }

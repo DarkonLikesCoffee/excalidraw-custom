@@ -156,6 +156,7 @@ import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
 import { BoardDashboard } from "./BoardDashboard";
 
 import { WindowTitleBar } from "./WindowTitleBar";
+import { BoardConflictDialog } from "./BoardConflictDialog";
 
 polyfill();
 
@@ -425,12 +426,15 @@ const ExcalidrawWrapper = ({
   }, []);
 
   const boardLoadedRef = useRef(false);
+  const boardMtimeRef = useRef<number | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingBoardSaveRef = useRef<{
     boardId: string;
     data: string;
   } | null>(null);
   const boardSaveInProgressRef = useRef(false);
+  const pendingConflictDataRef = useRef<string | null>(null);
+  const [boardConflict, setBoardConflict] = useState(false);
 
   const flushBoardSave = useCallback(async () => {
     if (boardSaveInProgressRef.current) {
@@ -446,7 +450,30 @@ const ExcalidrawWrapper = ({
     boardSaveInProgressRef.current = true;
 
     try {
-      await window.boardStorage.save(pendingSave.boardId, pendingSave.data);
+      const result = await window.boardStorage.save(
+        pendingSave.boardId,
+        pendingSave.data,
+        boardMtimeRef.current,
+      );
+
+      if (result.status === "conflict") {
+        pendingConflictDataRef.current = pendingSave.data;
+        setBoardConflict(true);
+        return;
+      }
+
+      boardMtimeRef.current = result.mtimeMs;
+    } catch (error) {
+      console.error(
+        `[BoardStorage] Could not save board ${pendingSave.boardId}:`,
+        error,
+      );
+
+      setErrorMessage(
+        error instanceof Error
+          ? `Could not save board: ${error.message}`
+          : "Could not save board.",
+      );
     } finally {
       boardSaveInProgressRef.current = false;
 
@@ -647,7 +674,8 @@ const ExcalidrawWrapper = ({
       if (window.boardStorage) {
         try {
 
-          const parsedData = await window.boardStorage.load(boardId);
+          const loadedBoard = await window.boardStorage.load(boardId);
+          const parsedData = loadedBoard.data;
 
           const boardScene = {
             elements: restoreElements(parsedData.elements, null, {
@@ -657,6 +685,8 @@ const ExcalidrawWrapper = ({
             appState: restoreAppState(parsedData.appState, null),
             files: parsedData.files || {},
           };
+
+          boardMtimeRef.current = loadedBoard.mtimeMs;
 
           if (parsedData.files) {
             excalidrawAPI.addFiles(Object.values(parsedData.files));
@@ -671,6 +701,22 @@ const ExcalidrawWrapper = ({
             `[BoardStorage] Could not load board ${boardId}:`,
             error,
           );
+
+          setErrorMessage(
+            error instanceof Error
+              ? `Could not load board: ${error.message}`
+              : "Could not load board.",
+          );
+
+          // Resolve the initial data promise so Excalidraw does not remain
+          // stuck loading, but keep boardLoadedRef false so autosave cannot
+          // overwrite the board file after a failed load.
+          initialStatePromiseRef.current.promise.resolve({
+            elements: [],
+            appState: restoreAppState(null, null),
+            files: {},
+          });
+          return;
         }
       }
 
@@ -835,6 +881,175 @@ const ExcalidrawWrapper = ({
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
   }, [excalidrawAPI]);
+
+  const closeBoardConflict = () => {
+    pendingConflictDataRef.current = null;
+    setBoardConflict(false);
+  };
+
+  const keepMine = async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+
+    const data =
+      pendingConflictDataRef.current ||
+      serializeAsJSON(
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        excalidrawAPI.getAppState(),
+        excalidrawAPI.getFiles(),
+        "local",
+      );
+
+    try {
+      const result = await window.boardStorage.save(
+        boardId,
+        data,
+        boardMtimeRef.current,
+        true,
+      );
+      if (result.status === "saved") {
+        boardMtimeRef.current = result.mtimeMs;
+        closeBoardConflict();
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? `Could not keep your changes: ${error.message}`
+          : "Could not keep your changes.",
+      );
+    }
+  };
+
+  const loadTheirs = async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+
+    try {
+      const loadedBoard = await window.boardStorage.load(boardId);
+      const parsedData = loadedBoard.data;
+
+      boardMtimeRef.current = loadedBoard.mtimeMs;
+      boardLoadedRef.current = true;
+
+      if (parsedData.files) {
+        excalidrawAPI.addFiles(Object.values(parsedData.files));
+      }
+
+      excalidrawAPI.updateScene({
+        elements: restoreElements(parsedData.elements, null, {
+          repairBindings: true,
+          deleteInvisibleElements: true,
+        }),
+        appState: restoreAppState(parsedData.appState, null),
+        captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+      });
+
+      closeBoardConflict();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? `Could not load the external changes: ${error.message}`
+          : "Could not load the external changes.",
+      );
+    }
+  };
+
+  const saveCopy = async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+
+    const data =
+      pendingConflictDataRef.current ||
+      serializeAsJSON(
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        excalidrawAPI.getAppState(),
+        excalidrawAPI.getFiles(),
+        "local",
+      );
+
+    try {
+      const copy = await window.boardStorage.create(`${boardId} copy`);
+      const result = await window.boardStorage.save(
+        copy.id,
+        data,
+        copy.mtimeMs,
+        true,
+      );
+
+      if (result.status === "saved") {
+        setErrorMessage(`Saved a copy as "${copy.name}".`);
+        closeBoardConflict();
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? `Could not save a copy: ${error.message}`
+          : "Could not save a copy.",
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (!window.boardStorage?.onChange) {
+      return;
+    }
+
+    return window.boardStorage.onChange(async ({ filename }) => {
+      if (!excalidrawAPI) {
+        return;
+      }
+
+      if (filename !== `${boardId}.excalidraw`) {
+        return;
+      }
+
+      try {
+        const loadedBoard = await window.boardStorage.load(boardId);
+
+        if (
+          boardMtimeRef.current !== null &&
+          Math.abs(loadedBoard.mtimeMs - boardMtimeRef.current) <= 0.5
+        ) {
+          return;
+        }
+
+        if (pendingBoardSaveRef.current || boardSaveInProgressRef.current) {
+          pendingConflictDataRef.current = serializeAsJSON(
+            excalidrawAPI.getSceneElementsIncludingDeleted(),
+            excalidrawAPI.getAppState(),
+            excalidrawAPI.getFiles(),
+            "local",
+          );
+          setBoardConflict(true);
+          return;
+        }
+
+        boardMtimeRef.current = loadedBoard.mtimeMs;
+        const parsedData = loadedBoard.data;
+
+        if (parsedData.files) {
+          excalidrawAPI.addFiles(Object.values(parsedData.files));
+        }
+
+        excalidrawAPI.updateScene({
+          elements: restoreElements(parsedData.elements, null, {
+            repairBindings: true,
+            deleteInvisibleElements: true,
+          }),
+          appState: restoreAppState(parsedData.appState, null),
+          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+        });
+      } catch (error) {
+        console.error(
+          `[BoardStorage] Could not handle external change for ${boardId}:`,
+          error,
+        );
+      }
+    });
+  }, [boardId, excalidrawAPI]);
 
   const onChange = (
     elements: readonly OrderedExcalidrawElement[],
@@ -1236,6 +1451,15 @@ const ExcalidrawWrapper = ({
 
         <AppSidebar />
 
+        {boardConflict && (
+          <BoardConflictDialog
+            boardName={boardId}
+            onKeepMine={keepMine}
+            onLoadTheirs={loadTheirs}
+            onSaveCopy={saveCopy}
+          />
+        )}
+
         {errorMessage && (
           <ErrorDialog onClose={() => setErrorMessage("")}>
             {errorMessage}
@@ -1463,7 +1687,7 @@ const ExcalidrawApp = () => {
 
       const data = serializeAsJSON(elements, appState, files, "local");
 
-      await window.boardStorage.save(board.id, data);
+      await window.boardStorage.save(board.id, data, board.mtimeMs, true);
 
       setBoardId(board.id);
     } finally {
