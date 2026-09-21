@@ -107,6 +107,12 @@ export const BoardDashboard = ({
   const [missingRecentBoard, setMissingRecentBoard] =
     useState<RecentBoardItem | null>(null);
 
+  // Search + sorting
+  const [boardSearch, setBoardSearch] = useState("");
+  const [boardSort, setBoardSort] = useState<
+    "updated" | "name-asc" | "name-desc"
+  >("updated");
+
   const refreshBoards = useCallback(async () => {
     try {
       const [boardList, recentList] = await Promise.all([
@@ -331,6 +337,36 @@ export const BoardDashboard = ({
     await refreshBoards();
   };
 
+  /*
+   * Search and sort are frontend-only.
+   * Recent boards are intentionally not affected.
+   */
+  const normalizedSearch = boardSearch.trim().toLowerCase();
+
+  const filteredBoards = [...boards]
+    .filter((board) =>
+      normalizedSearch
+        ? board.name.toLowerCase().includes(normalizedSearch)
+        : true,
+    )
+    .sort((a, b) => {
+      if (boardSort === "name-asc") {
+        return a.name.localeCompare(b.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+
+      if (boardSort === "name-desc") {
+        return b.name.localeCompare(a.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+
+      return b.mtimeMs - a.mtimeMs;
+    });
+
   return (
     <div className="board-dashboard">
       <div className="board-dashboard__container">
@@ -413,8 +449,116 @@ export const BoardDashboard = ({
         )}
 
         {boards.length > 0 && (
+          <div
+            className="board-dashboard__board-controls"
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              marginBottom: "18px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                position: "relative",
+                flex: "1 1 280px",
+                minWidth: 0,
+              }}
+            >
+              <input
+                aria-label="Search boards"
+                value={boardSearch}
+                onChange={(event) => setBoardSearch(event.target.value)}
+                placeholder="Search boards..."
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "10px 38px 10px 12px",
+                  border: "1px solid var(--default-border-color, #d9d9d9)",
+                  borderRadius: "8px",
+                  background: "var(--island-bg-color, #fff)",
+                  color: "var(--text-primary-color, #1b1b1f)",
+                  fontSize: "14px",
+                  outline: "none",
+                }}
+              />
+
+              {boardSearch && (
+                <button
+                  type="button"
+                  onClick={() => setBoardSearch("")}
+                  aria-label="Clear board search"
+                  title="Clear search"
+                  style={{
+                    position: "absolute",
+                    right: "8px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    width: "24px",
+                    height: "24px",
+                    padding: 0,
+                    border: 0,
+                    borderRadius: "50%",
+                    background: "transparent",
+                    color: "var(--text-primary-color, #666)",
+                    cursor: "pointer",
+                    fontSize: "18px",
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <select
+              aria-label="Sort boards"
+              value={boardSort}
+              onChange={(event) =>
+                setBoardSort(
+                  event.target.value as
+                    | "updated"
+                    | "name-asc"
+                    | "name-desc",
+                )
+              }
+              style={{
+                flex: "0 0 auto",
+                minWidth: "160px",
+                padding: "10px 32px 10px 12px",
+                border: "1px solid var(--default-border-color, #d9d9d9)",
+                borderRadius: "8px",
+                background: "var(--island-bg-color, #fff)",
+                color: "var(--text-primary-color, #1b1b1f)",
+                fontSize: "14px",
+                cursor: "pointer",
+              }}
+            >
+              <option value="updated">Last modified</option>
+              <option value="name-asc">Name A → Z</option>
+              <option value="name-desc">Name Z → A</option>
+            </select>
+          </div>
+        )}
+
+        {boards.length > 0 && (
           <div className="board-dashboard__boards-heading">
-            <h2>My Boards</h2>
+            <h2>
+              My Boards
+              {normalizedSearch && (
+                <span
+                  style={{
+                    marginLeft: "8px",
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    opacity: 0.65,
+                  }}
+                >
+                  {filteredBoards.length} of {boards.length}
+                </span>
+              )}
+            </h2>
           </div>
         )}
 
@@ -433,9 +577,24 @@ export const BoardDashboard = ({
               Create Board
             </button>
           </div>
+        ) : filteredBoards.length === 0 ? (
+          <div className="board-dashboard__empty">
+            <div className="board-dashboard__empty-icon">⌕</div>
+
+            <h2>No matching boards</h2>
+
+            <p>Try a different search.</p>
+
+            <button
+              className="board-dashboard__primary-button"
+              onClick={() => setBoardSearch("")}
+            >
+              Clear Search
+            </button>
+          </div>
         ) : (
           <div className="board-grid">
-            {boards.map((board) => (
+            {filteredBoards.map((board) => (
               <article className="board-card" key={board.id}>
                 <button
                   className="board-card__preview-button"
