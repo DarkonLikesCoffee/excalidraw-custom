@@ -107,11 +107,47 @@ export const BoardDashboard = ({
   const [missingRecentBoard, setMissingRecentBoard] =
     useState<RecentBoardItem | null>(null);
 
-  // Search + sorting
   const [boardSearch, setBoardSearch] = useState("");
   const [boardSort, setBoardSort] = useState<
     "updated" | "name-asc" | "name-desc"
   >("updated");
+
+  const [favoriteBoardIds, setFavoriteBoardIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(
+        "excalidraw-custom-favorites",
+      );
+
+      if (!stored) {
+        return new Set();
+      }
+
+      const parsed = JSON.parse(stored);
+
+      return Array.isArray(parsed) ? new Set(parsed) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const toggleFavorite = (boardId: string) => {
+    setFavoriteBoardIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(boardId)) {
+        next.delete(boardId);
+      } else {
+        next.add(boardId);
+      }
+
+      localStorage.setItem(
+        "excalidraw-custom-favorites",
+        JSON.stringify([...next]),
+      );
+
+      return next;
+    });
+  };
 
   const refreshBoards = useCallback(async () => {
     try {
@@ -337,10 +373,6 @@ export const BoardDashboard = ({
     await refreshBoards();
   };
 
-  /*
-   * Search and sort are frontend-only.
-   * Recent boards are intentionally not affected.
-   */
   const normalizedSearch = boardSearch.trim().toLowerCase();
 
   const filteredBoards = [...boards]
@@ -350,6 +382,13 @@ export const BoardDashboard = ({
         : true,
     )
     .sort((a, b) => {
+      const aFavorite = favoriteBoardIds.has(a.id);
+      const bFavorite = favoriteBoardIds.has(b.id);
+
+      if (aFavorite !== bFavorite) {
+        return aFavorite ? -1 : 1;
+      }
+
       if (boardSort === "name-asc") {
         return a.name.localeCompare(b.name, undefined, {
           numeric: true,
@@ -546,6 +585,18 @@ export const BoardDashboard = ({
           <div className="board-dashboard__boards-heading">
             <h2>
               My Boards
+              {favoriteBoardIds.size > 0 && (
+                <span
+                  style={{
+                    marginLeft: "8px",
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    opacity: 0.65,
+                  }}
+                >
+                  ★ {favoriteBoardIds.size}
+                </span>
+              )}
               {normalizedSearch && (
                 <span
                   style={{
@@ -595,7 +646,50 @@ export const BoardDashboard = ({
         ) : (
           <div className="board-grid">
             {filteredBoards.map((board) => (
-              <article className="board-card" key={board.id}>
+              <article
+                className="board-card"
+                key={board.id}
+                style={{ position: "relative" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleFavorite(board.id)}
+                  aria-label={
+                    favoriteBoardIds.has(board.id)
+                      ? `Remove ${board.name} from favorites`
+                      : `Add ${board.name} to favorites`
+                  }
+                  title={
+                    favoriteBoardIds.has(board.id)
+                      ? "Remove from favorites"
+                      : "Add to favorites"
+                  }
+                  style={{
+                    position: "absolute",
+                    top: "10px",
+                    right: "10px",
+                    zIndex: 2,
+                    width: "32px",
+                    height: "32px",
+                    padding: 0,
+                    border: "none",
+                    borderRadius: "8px",
+                    background: "rgba(255, 255, 255, 0.92)",
+                    color: favoriteBoardIds.has(board.id)
+                      ? "#f5b301"
+                      : "#777",
+                    cursor: "pointer",
+                    fontSize: "18px",
+                    lineHeight: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 1px 4px rgba(0, 0, 0, 0.12)",
+                  }}
+                >
+                  {favoriteBoardIds.has(board.id) ? "★" : "☆"}
+                </button>
+
                 <button
                   className="board-card__preview-button"
                   onClick={() => onOpenBoard(board.id)}
