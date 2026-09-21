@@ -6,6 +6,10 @@ type Board = BoardStorageItem;
 
 type BoardDashboardProps = {
   onOpenBoard: (boardId: string) => void;
+  onOpenExternalFile: (file: {
+    id: string;
+    name: string;
+  }) => Promise<void>;
 };
 
 const INVALID_FILENAME_CHARS = /[<>:"/\\|?*\x00-\x1F]/;
@@ -75,7 +79,10 @@ const validateBoardName = (
   return null;
 };
 
-export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
+export const BoardDashboard = ({
+  onOpenBoard,
+  onOpenExternalFile,
+}: BoardDashboardProps) => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
 
@@ -236,6 +243,24 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
     }
   };
 
+    const openExternalFile = async () => {
+    try {
+      const file = await window.boardStorage.openExternal();
+
+      if (!file) {
+        return;
+      }
+
+      await onOpenExternalFile(file);
+    } catch (error) {
+      setDashboardError(
+        error instanceof Error
+          ? error.message
+          : "Failed to open Excalidraw file.",
+      );
+    }
+  };
+
   return (
     <div className="board-dashboard">
       <div className="board-dashboard__container">
@@ -245,7 +270,7 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
             <p>Your Excalidraw boards</p>
           </div>
 
-          <div className="board-dashboard__header-actions">
+                    <div className="board-dashboard__header-actions">
             <button
               className="board-dashboard__settings-button"
               onClick={() => {
@@ -256,6 +281,13 @@ export const BoardDashboard = ({ onOpenBoard }: BoardDashboardProps) => {
               title="Settings"
             >
               ⚙
+            </button>
+
+            <button
+              className="board-dashboard__secondary-button"
+              onClick={() => void openExternalFile()}
+            >
+              Open File
             </button>
 
             <button

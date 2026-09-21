@@ -379,19 +379,16 @@ const initializeScene = async (opts: {
   return { scene: null, isExternalScene: false };
 };
 
+const isExternalBoardId = (id: string) => id.startsWith("external:");
+
 const ExcalidrawWrapper = ({
   boardId,
-  onImportBoard,
-  isImportingBoard,
+  boardName,
+  onOpenExternalFile,
 }: {
   boardId: string;
-  onImportBoard: (data: {
-    elements: any[];
-    appState: any;
-    files: any;
-    name: string;
-  }) => Promise<void>;
-  isImportingBoard: boolean;
+  boardName: string | null;
+  onOpenExternalFile: (file: { id: string; name: string }) => Promise<void>;
 }) => {
   const excalidrawAPI = useExcalidrawAPI();
 
@@ -673,7 +670,6 @@ const ExcalidrawWrapper = ({
     initializeScene({ collabAPI, excalidrawAPI }).then(async (data) => {
       if (window.boardStorage) {
         try {
-
           const loadedBoard = await window.boardStorage.load(boardId);
           const parsedData = loadedBoard.data;
 
@@ -971,7 +967,8 @@ const ExcalidrawWrapper = ({
       );
 
     try {
-      const copy = await window.boardStorage.create(`${boardId} copy`);
+      const sourceName = boardName || boardId.replace(/^external:/, "");
+      const copy = await window.boardStorage.create(`${sourceName} copy`);
       const result = await window.boardStorage.save(
         copy.id,
         data,
@@ -1002,7 +999,11 @@ const ExcalidrawWrapper = ({
         return;
       }
 
-      if (filename !== `${boardId}.excalidraw`) {
+      const expectedFilename = isExternalBoardId(boardId)
+        ? boardId
+        : `${boardId}.excalidraw`;
+
+      if (filename !== expectedFilename) {
         return;
       }
 
@@ -1056,11 +1057,7 @@ const ExcalidrawWrapper = ({
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    if (
-      window.boardStorage &&
-      !isImportingBoard &&
-      boardLoadedRef.current
-    ) {
+    if (window.boardStorage && boardLoadedRef.current) {
       const data = serializeAsJSON(elements, appState, files, "local");
       scheduleBoardSave(data);
     }
@@ -1381,7 +1378,7 @@ const ExcalidrawWrapper = ({
           isCollabEnabled={!isCollabDisabled}
           theme={appTheme}
           refresh={() => forceRefresh((prev) => !prev)}
-          onImportBoard={onImportBoard}
+          onOpenExternalFile={onOpenExternalFile}
         />
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
@@ -1453,7 +1450,7 @@ const ExcalidrawWrapper = ({
 
         {boardConflict && (
           <BoardConflictDialog
-            boardName={boardId}
+            boardName={boardName || boardId.replace(/^external:/, "")}
             onKeepMine={keepMine}
             onLoadTheirs={loadTheirs}
             onSaveCopy={saveCopy}
@@ -1662,37 +1659,23 @@ const ExcalidrawWrapper = ({
 const ExcalidrawApp = () => {
   const isCloudExportWindow =
     window.location.pathname === "/excalidraw-plus-export";
+
   if (isCloudExportWindow) {
     return <ExcalidrawPlusIframeExport />;
   }
 
   const [boardId, setBoardId] = useState<string | null>(null);
-  const [isImportingBoard, setIsImportingBoard] = useState(false);
+  const [boardName, setBoardName] = useState<string | null>(null);
 
-  const importBoard = async ({
-    elements,
-    appState,
-    files,
+  const openExternalFile = async ({
+    id,
     name,
   }: {
-    elements: any[];
-    appState: any;
-    files: any;
+    id: string;
     name: string;
   }) => {
-    setIsImportingBoard(true);
-
-    try {
-      const board = await window.boardStorage.create(name);
-
-      const data = serializeAsJSON(elements, appState, files, "local");
-
-      await window.boardStorage.save(board.id, data, board.mtimeMs, true);
-
-      setBoardId(board.id);
-    } finally {
-      setIsImportingBoard(false);
-    }
+    setBoardName(name);
+    setBoardId(id);
   };
 
   return (
@@ -1707,7 +1690,14 @@ const ExcalidrawApp = () => {
     >
       <WindowTitleBar
         showDashboardButton={Boolean(boardId)}
-        onDashboard={() => setBoardId(null)}
+        onDashboard={() => {
+          if (boardId?.startsWith("external:")) {
+            void window.boardStorage.stopExternalWatch();
+          }
+
+          setBoardId(null);
+          setBoardName(null);
+        }}
       />
 
       <div
@@ -1718,15 +1708,21 @@ const ExcalidrawApp = () => {
         }}
       >
         {!boardId ? (
-          <BoardDashboard onOpenBoard={(id) => setBoardId(id)} />
+          <BoardDashboard
+            onOpenBoard={(id) => {
+              setBoardName(null);
+              setBoardId(id);
+            }}
+            onOpenExternalFile={openExternalFile}
+          />
         ) : (
           <TopErrorBoundary>
             <Provider store={appJotaiStore}>
               <ExcalidrawAPIProvider key={boardId}>
                 <ExcalidrawWrapper
                   boardId={boardId}
-                  onImportBoard={importBoard}
-                  isImportingBoard={isImportingBoard}
+                  boardName={boardName}
+                  onOpenExternalFile={openExternalFile}
                 />
               </ExcalidrawAPIProvider>
             </Provider>

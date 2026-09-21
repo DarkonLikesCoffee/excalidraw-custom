@@ -5,6 +5,50 @@ const boardStorage = require("./storage/boards.cjs");
 
 let boardsWatcher = null;
 let boardsWatchTimer = null;
+let externalWatcher = null;
+let externalWatchTimer = null;
+
+function stopExternalWatcher() {
+  if (externalWatchTimer) {
+    clearTimeout(externalWatchTimer);
+    externalWatchTimer = null;
+  }
+
+  if (externalWatcher) {
+    externalWatcher.close();
+    externalWatcher = null;
+  }
+}
+
+function startExternalWatcher(filePath, boardId) {
+  stopExternalWatcher();
+
+  const directory = path.dirname(filePath);
+  const targetFilename = path.basename(filePath);
+
+  externalWatcher = fs.watch(
+    directory,
+    { persistent: false },
+    (eventType, filename) => {
+      if (!filename || filename.toString() !== targetFilename) {
+        return;
+      }
+
+      if (externalWatchTimer) {
+        clearTimeout(externalWatchTimer);
+      }
+
+      externalWatchTimer = setTimeout(() => {
+        externalWatchTimer = null;
+
+        broadcastBoardsChanged({
+          eventType,
+          filename: boardId,
+        });
+      }, 100);
+    },
+  );
+}
 
 function broadcastBoardsChanged(payload) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -24,6 +68,7 @@ function stopBoardsWatcher() {
     boardsWatcher.close();
     boardsWatcher = null;
   }
+  stopExternalWatcher();
 }
 
 function startBoardsWatcher() {
@@ -89,6 +134,36 @@ ipcMain.handle("boards:choose-folder", async () => {
   }
 
   return result.filePaths[0];
+});
+
+ipcMain.handle("boards:open-external", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Open Excalidraw File",
+    properties: ["openFile"],
+    filters: [
+      {
+        name: "Excalidraw files",
+        extensions: ["excalidraw"],
+      },
+    ],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const opened = boardStorage.openExternalBoard(result.filePaths[0]);
+
+  startExternalWatcher(opened.path, opened.id);
+
+  return {
+    id: opened.id,
+    name: opened.name,
+  };
+});
+
+ipcMain.handle("boards:stop-external-watch", () => {
+  stopExternalWatcher();
 });
 
 ipcMain.handle("boards:get-thumbnail", (_, id) =>

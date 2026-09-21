@@ -427,3 +427,18 @@
 .board-settings-dialog .dialog__error {
   margin-top: 10px;
 }
+
+.board-dashboard__secondary-button {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.board-dashboard__secondary-button:hover {
+  background: var(--color-hover);
+}

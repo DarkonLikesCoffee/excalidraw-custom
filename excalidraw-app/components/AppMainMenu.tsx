@@ -5,8 +5,6 @@ import {
 } from "@excalidraw/excalidraw/components/icons";
 import { useI18n } from "@excalidraw/excalidraw/i18n";
 import { MainMenu, useExcalidrawAPI } from "@excalidraw/excalidraw/index";
-import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
-import { fileOpen } from "@excalidraw/excalidraw/data/filesystem";
 import React from "react";
 
 import { isDevEnv } from "@excalidraw/common";
@@ -24,12 +22,7 @@ export const AppMainMenu: React.FC<{
   isCollabEnabled: boolean;
   theme: Theme | "system";
   refresh: () => void;
-  onImportBoard: (data: {
-    elements: any[];
-    appState: any;
-    files: any;
-    name: string;
-  }) => Promise<void>;
+  onOpenExternalFile: (file: { id: string; name: string }) => Promise<void>;
 }> = React.memo((props) => {
   const { t } = useI18n();
   const excalidrawAPI = useExcalidrawAPI();
@@ -38,51 +31,20 @@ export const AppMainMenu: React.FC<{
       <MainMenu.Item
         onSelect={async () => {
           try {
-            const file = await fileOpen({
-              description: "Excalidraw files",
-            });
+            const file = await window.boardStorage.openExternal();
 
-            const { elements, appState, files } = await loadFromBlob(
-              file,
-              null,
-              null,
-              file.handle,
-            );
-
-            console.log("[IMPORT] FILE:", file.name);
-            console.log("[IMPORT] LOADED ELEMENTS:", elements.length);
-            console.log(
-              "[IMPORT] ELEMENT DATA:",
-              JSON.stringify(
-                elements.map((element) => ({
-                  id: element.id,
-                  type: element.type,
-                  text: "text" in element ? element.text : undefined,
-                })),
-                null,
-                2,
-              ),
-            );
-
-            const name =
-              file.name?.replace(/\.excalidraw$/i, "") || "Imported Board";
-
-            await props.onImportBoard({
-              elements,
-              appState,
-              files,
-              name,
-            });
-          } catch (error: any) {
-            if (error?.name === "AbortError") {
+            if (!file) {
               return;
             }
 
-            console.error("[BoardImport] Failed to import board", error);
+            await props.onOpenExternalFile(file);
+          } catch (error: any) {
+            console.error("[ExternalOpen] Failed to open board", error);
 
             excalidrawAPI?.updateScene({
               appState: {
-                errorMessage: error?.message || "Failed to import board.",
+                errorMessage:
+                  error?.message || "Failed to open Excalidraw file.",
               },
             });
           }

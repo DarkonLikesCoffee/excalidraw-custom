@@ -9,6 +9,11 @@ declare global {
     size: number;
   };
 
+  type ExternalBoardOpenResult = {
+    id: string;
+    name: string;
+  };
+
   type BoardLoadResult = {
     data: {
       type: "excalidraw";
@@ -70,6 +75,10 @@ declare global {
           filename: string | null;
         }) => void,
       ) => () => void;
+
+      openExternal: () => Promise<ExternalBoardOpenResult | null>;
+
+      stopExternalWatch: () => Promise<void>;
     };
 
     windowControls: {

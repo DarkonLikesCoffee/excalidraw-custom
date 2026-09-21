@@ -141,6 +141,77 @@ function validateBoardId(id) {
   return id;
 }
 
+function isExternalBoardId(id) {
+  return typeof id === "string" && id.startsWith("external:");
+}
+
+function getExternalBoardPath(id) {
+  if (!isExternalBoardId(id)) {
+    return null;
+  }
+
+  const encodedPath = id.slice("external:".length);
+
+  if (!encodedPath) {
+    throw new Error("Invalid external board ID.");
+  }
+
+  let decodedPath;
+
+  try {
+    decodedPath = decodeURIComponent(encodedPath);
+  } catch {
+    throw new Error("Invalid external board ID.");
+  }
+
+  if (!path.isAbsolute(decodedPath)) {
+    throw new Error("Invalid external board path.");
+  }
+
+  return path.resolve(decodedPath);
+}
+
+function getExternalBoardId(filePath) {
+  return `external:${encodeURIComponent(path.resolve(filePath))}`;
+}
+
+function getBoardFilePath(id) {
+  if (isExternalBoardId(id)) {
+    return getExternalBoardPath(id);
+  }
+
+  return getBoardPath(id);
+}
+
+function openExternalBoard(filePath) {
+  ensureInitialized();
+
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    throw new Error("Invalid external board path.");
+  }
+
+  const resolvedPath = path.resolve(filePath);
+
+  if (!resolvedPath.toLowerCase().endsWith(".excalidraw")) {
+    throw new Error("Only .excalidraw files can be opened.");
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error("The selected file does not exist.");
+  }
+
+  const id = getExternalBoardId(resolvedPath);
+
+  // Validate the file before opening it.
+  loadBoard(id);
+
+  return {
+    id,
+    name: path.basename(resolvedPath, path.extname(resolvedPath)),
+    path: resolvedPath,
+  };
+}
+
 function getBoardPath(id) {
   ensureInitialized();
 
@@ -264,7 +335,7 @@ function createBoard(name) {
 }
 
 function saveBoard(id, data, expectedMtimeMs = null, force = false) {
-  const filePath = getBoardPath(id);
+  const filePath = getBoardFilePath(id);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Board not found: ${id}`);
@@ -298,7 +369,7 @@ function saveBoard(id, data, expectedMtimeMs = null, force = false) {
 }
 
 function loadBoard(id) {
-  const filePath = getBoardPath(id);
+  const filePath = getBoardFilePath(id);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Board not found: ${id}`);
@@ -466,6 +537,7 @@ module.exports = {
   createBoard,
   saveBoard,
   loadBoard,
+  openExternalBoard,
   deleteBoard,
   renameBoard,
   listBoards,
