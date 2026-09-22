@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import "./board-dashboard.css";
 import { BoardThumbnail } from "./BoardThumbnail";
 
@@ -46,6 +46,7 @@ export const BoardDashboard = ({ onOpenBoard, onOpenExternalFile }: BoardDashboa
   const [duplicatingBoardId, setDuplicatingBoardId] = useState<string | null>(null);
   const [movingBoard, setMovingBoard] = useState<Board | null>(null);
   const [movingBoardBusy, setMovingBoardBusy] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; board: Board } | null>(null);
 
   const [boardsFolder, setBoardsFolder] = useState<string | null>(null);
   const [changingFolder, setChangingFolder] = useState(false);
@@ -259,6 +260,29 @@ export const BoardDashboard = ({ onOpenBoard, onOpenExternalFile }: BoardDashboa
     if (board) await moveBoard(board, folder.relativePath);
   };
 
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeMenu = () => setContextMenu(null);
+    document.addEventListener("click", closeMenu);
+    document.addEventListener("contextmenu", closeMenu);
+    return () => {
+      document.removeEventListener("click", closeMenu);
+      document.removeEventListener("contextmenu", closeMenu);
+    };
+  }, [contextMenu]);
+
+  const showBoardContextMenu = (event: ReactMouseEvent, board: Board) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menuWidth = 210;
+    const menuHeight = 255;
+    setContextMenu({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
+      board,
+    });
+  };
+
   return (
     <div className="board-dashboard">
       <div className="board-dashboard__container">
@@ -338,17 +362,14 @@ export const BoardDashboard = ({ onOpenBoard, onOpenExternalFile }: BoardDashboa
         ) : (
           <div className="board-grid" style={boardView === "list" ? { display: "flex", flexDirection: "column", gap: "12px" } : undefined}>
             {filteredBoards.map((board) => (
-              <article key={board.id} className="board-card" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-excalidraw-board-id", board.id); }} style={boardView === "list" ? { position: "relative", display: "flex", alignItems: "stretch", minHeight: "132px" } : { position: "relative" }}>
+              <article key={board.id} className="board-card" draggable onContextMenu={(event) => showBoardContextMenu(event, board)} onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-excalidraw-board-id", board.id); }} style={boardView === "list" ? { position: "relative", display: "flex", alignItems: "stretch", minHeight: "132px" } : { position: "relative" }}>
                 <button type="button" onClick={() => toggleFavorite(board.id)} aria-label={favoriteBoardIds.has(board.id) ? `Remove ${board.name} from favorites` : `Add ${board.name} to favorites`} title={favoriteBoardIds.has(board.id) ? "Remove from favorites" : "Add to favorites"} style={{ position: "absolute", top: "10px", right: "10px", zIndex: 2, width: "32px", height: "32px", padding: 0, border: "none", borderRadius: "8px", background: "rgba(255,255,255,.92)", color: favoriteBoardIds.has(board.id) ? "#f5b301" : "#777", cursor: "pointer", fontSize: "18px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,.12)" }}>{favoriteBoardIds.has(board.id) ? "★" : "☆"}</button>
                 <button className="board-card__preview-button" onClick={() => onOpenBoard(board.id)} aria-label={`Open ${board.name}`} style={boardView === "list" ? { flex: "0 0 220px", width: "220px", minHeight: "132px" } : undefined}><BoardThumbnail boardId={board.id} /></button>
                 <div className="board-card__content" style={boardView === "list" ? { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" } : undefined}>
                   <button className="board-card__name" onClick={() => onOpenBoard(board.id)}>{board.name}</button>
                   <p className="board-card__date">{new Date(board.updatedAt).toLocaleString()}</p>
                   <div className="board-card__actions">
-                    <button onClick={() => void duplicateBoard(board)} disabled={duplicatingBoardId === board.id}>{duplicatingBoardId === board.id ? "Duplicating..." : "Duplicate"}</button>
-                    <button onClick={() => setMovingBoard(board)}>Move</button>
-                    <button onClick={() => openRenameDialog(board)}>Rename</button>
-                    <button onClick={() => setDeletingBoard(board)}>Delete</button>
+                    <button type="button" className="board-card__more-button" style={{ flex: "0 0 34px", width: "34px", height: "32px", padding: 0, fontSize: "20px", lineHeight: 1 }} onClick={(event) => showBoardContextMenu(event, board)} aria-label={`Actions for ${board.name}`} title="Board actions">⋮</button>
                   </div>
                 </div>
               </article>
@@ -356,6 +377,18 @@ export const BoardDashboard = ({ onOpenBoard, onOpenExternalFile }: BoardDashboa
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <div role="menu" aria-label={`${contextMenu.board.name} actions`} style={{ position: "fixed", left: contextMenu.x, top: contextMenu.y, zIndex: 2000, width: "210px", boxSizing: "border-box", padding: "6px", overflow: "hidden", border: "1px solid #dedee2", borderRadius: "10px", background: "#fff", boxShadow: "0 12px 32px rgba(0,0,0,.16)" }} onClick={(event) => event.stopPropagation()}>
+          <div style={{ overflow: "hidden", padding: "8px 10px 9px", color: "#888", fontSize: "11px", fontWeight: 600, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{contextMenu.board.name}</div>
+          <button type="button" role="menuitem" style={{ display: "block", width: "100%", boxSizing: "border-box", border: 0, borderRadius: "7px", padding: "9px 10px", background: "transparent", color: "#2d2d30", font: "inherit", fontSize: "13px", textAlign: "left", cursor: "pointer" }} onClick={() => { onOpenBoard(contextMenu.board.id); setContextMenu(null); }}>Open</button>
+          <button type="button" role="menuitem" style={{ display: "block", width: "100%", boxSizing: "border-box", border: 0, borderRadius: "7px", padding: "9px 10px", background: "transparent", color: "#2d2d30", font: "inherit", fontSize: "13px", textAlign: "left", cursor: "pointer" }} disabled={duplicatingBoardId === contextMenu.board.id} onClick={() => { const board = contextMenu.board; setContextMenu(null); void duplicateBoard(board); }}>{duplicatingBoardId === contextMenu.board.id ? "Duplicating…" : "Duplicate"}</button>
+          <button type="button" role="menuitem" style={{ display: "block", width: "100%", boxSizing: "border-box", border: 0, borderRadius: "7px", padding: "9px 10px", background: "transparent", color: "#2d2d30", font: "inherit", fontSize: "13px", textAlign: "left", cursor: "pointer" }} onClick={() => { const board = contextMenu.board; setContextMenu(null); openRenameDialog(board); }}>Rename</button>
+          <button type="button" role="menuitem" style={{ display: "block", width: "100%", boxSizing: "border-box", border: 0, borderRadius: "7px", padding: "9px 10px", background: "transparent", color: "#2d2d30", font: "inherit", fontSize: "13px", textAlign: "left", cursor: "pointer" }} onClick={() => { const board = contextMenu.board; setContextMenu(null); setMovingBoard(board); }}>Move to…</button>
+          <div style={{ height: "1px", margin: "5px 4px", background: "#ededee" }} />
+          <button type="button" role="menuitem" style={{ display: "block", width: "100%", boxSizing: "border-box", border: 0, borderRadius: "7px", padding: "9px 10px", background: "transparent", color: "#d64545", font: "inherit", fontSize: "13px", textAlign: "left", cursor: "pointer" }} onClick={() => { const board = contextMenu.board; setContextMenu(null); setDeletingBoard(board); }}>Delete</button>
+        </div>
+      )}
 
       {settingsOpen && <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}><div className="dialog board-settings-dialog"><div className="board-settings-dialog__header"><div><h2>Settings</h2><p>Configure where your Excalidraw boards are stored.</p></div><button className="board-settings-dialog__close" onClick={() => setSettingsOpen(false)} aria-label="Close settings">×</button></div><section className="board-settings-section"><div className="board-settings-section__title"><h3>Storage</h3><p>Boards are saved as standard .excalidraw files.</p></div><div className="board-settings-folder"><div className="board-settings-folder__path"><span className="board-settings-folder__label">Boards folder</span><span className="board-settings-folder__value">{boardsFolder || "Loading..."}</span></div><button className="board-settings-folder__change" onClick={() => void changeBoardsFolder()} disabled={changingFolder}>{changingFolder ? "Changing..." : "Change…"}</button></div>{folderError && <p className="dialog__error">{folderError}</p>}</section></div></div>}
 
