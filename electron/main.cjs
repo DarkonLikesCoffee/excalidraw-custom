@@ -8,167 +8,113 @@ let boardsWatchTimer = null;
 let externalWatcher = null;
 let externalWatchTimer = null;
 
-
 function stopExternalWatcher() {
-  if (externalWatchTimer) {
-    clearTimeout(externalWatchTimer);
-    externalWatchTimer = null;
-  }
-
-  if (externalWatcher) {
-    externalWatcher.close();
-    externalWatcher = null;
-  }
+  if (externalWatchTimer) { clearTimeout(externalWatchTimer); externalWatchTimer = null; }
+  if (externalWatcher) { externalWatcher.close(); externalWatcher = null; }
 }
 
 function startExternalWatcher(filePath, boardId) {
   stopExternalWatcher();
-
   const directory = path.dirname(filePath);
   const targetFilename = path.basename(filePath);
-
-  externalWatcher = fs.watch(
-    directory,
-    { persistent: false },
-    (eventType, filename) => {
-      if (!filename || filename.toString() !== targetFilename) {
-        return;
-      }
-
-      if (externalWatchTimer) {
-        clearTimeout(externalWatchTimer);
-      }
-
-      externalWatchTimer = setTimeout(() => {
-        externalWatchTimer = null;
-        broadcastBoardsChanged({ eventType, filename: boardId });
-      }, 100);
-    },
-  );
+  externalWatcher = fs.watch(directory, { persistent: false }, (eventType, filename) => {
+    if (!filename || filename.toString() !== targetFilename) return;
+    if (externalWatchTimer) clearTimeout(externalWatchTimer);
+    externalWatchTimer = setTimeout(() => {
+      externalWatchTimer = null;
+      broadcastBoardsChanged({ eventType, filename: boardId, path: filePath });
+    }, 100);
+  });
 }
 
 function broadcastBoardsChanged(payload) {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send("boards:changed", payload);
-    }
+    if (!win.isDestroyed()) win.webContents.send("boards:changed", payload);
   }
 }
 
 function stopBoardsWatcher() {
-  if (boardsWatchTimer) {
-    clearTimeout(boardsWatchTimer);
-    boardsWatchTimer = null;
-  }
-
-  if (boardsWatcher) {
-    boardsWatcher.close();
-    boardsWatcher = null;
-  }
-
+  if (boardsWatchTimer) { clearTimeout(boardsWatchTimer); boardsWatchTimer = null; }
+  if (boardsWatcher) { boardsWatcher.close(); boardsWatcher = null; }
   stopExternalWatcher();
+}
+
+function normalizeWatcherFilename(filename) {
+  if (!filename) return null;
+  const relative = filename.toString();
+  const absolute = path.resolve(boardStorage.getBoardsFolder(), relative);
+  if (!absolute.toLowerCase().endsWith(".excalidraw") || !fs.existsSync(absolute)) {
+    return null;
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(absolute, "utf-8"));
+    const id = data?.custom?.excalidrawCustomId;
+    return typeof id === "string" ? `${id}.excalidraw` : relative;
+  } catch {
+    return relative;
+  }
+}
+
+function emitBoardsChanged(eventType, filename) {
+  broadcastBoardsChanged({
+    eventType,
+    filename: normalizeWatcherFilename(filename),
+  });
 }
 
 function startBoardsWatcher() {
   stopBoardsWatcher();
-
   const boardsFolder = boardStorage.getBoardsFolder();
-
-  boardsWatcher = fs.watch(
-    boardsFolder,
-    { persistent: false },
-    (eventType, filename) => {
-      if (boardsWatchTimer) {
-        clearTimeout(boardsWatchTimer);
-      }
-
-      boardsWatchTimer = setTimeout(() => {
-        boardsWatchTimer = null;
-
-        broadcastBoardsChanged({
-          eventType,
-          filename: filename ? filename.toString() : null,
-        });
-      }, 100);
-    },
-  );
+  const handleChange = (eventType, filename) => {
+    if (boardsWatchTimer) clearTimeout(boardsWatchTimer);
+    boardsWatchTimer = setTimeout(() => {
+      boardsWatchTimer = null;
+      emitBoardsChanged(eventType, filename);
+    }, 150);
+  };
+  try {
+    boardsWatcher = fs.watch(boardsFolder, { persistent: false, recursive: true }, handleChange);
+  } catch {
+    boardsWatcher = fs.watch(boardsFolder, { persistent: false }, handleChange);
+  }
 }
 
-ipcMain.handle("boards:list", () => boardStorage.listBoards());
-
-ipcMain.handle("boards:create", (_, name) => boardStorage.createBoard(name));
-
+ipcMain.handle("boards:list", (_, relativeFolderPath = "") => boardStorage.listBoards(relativeFolderPath));
+ipcMain.handle("boards:create", (_, name, relativeFolderPath = "") => boardStorage.createBoard(name, relativeFolderPath));
 ipcMain.handle("boards:duplicate", (_, id) => boardStorage.duplicateBoard(id));
-
-ipcMain.handle("boards:save", (_, id, data, expectedMtimeMs, force) =>
-  boardStorage.saveBoard(id, data, expectedMtimeMs, force),
-);
-
+ipcMain.handle("boards:move", (_, id, destinationRelativeFolderPath) => boardStorage.moveBoard(id, destinationRelativeFolderPath));
+ipcMain.handle("boards:create-folder", (_, relativeParentPath, name) => boardStorage.createFolder(relativeParentPath, name));
+ipcMain.handle("boards:list-folders", () => boardStorage.listAllFolders());
+ipcMain.handle("boards:save", (_, id, data, expectedMtimeMs, force) => boardStorage.saveBoard(id, data, expectedMtimeMs, force));
 ipcMain.handle("boards:load", (_, id) => {
   const result = boardStorage.loadBoard(id);
   boardStorage.addRecentBoard(id);
   return result;
 });
-
-ipcMain.handle("boards:delete", async (_, id) => {
-  await boardStorage.deleteBoard(id);
-});
-
-ipcMain.handle("boards:rename", (_, id, newName) =>
-  boardStorage.renameBoard(id, newName),
-);
-
+ipcMain.handle("boards:delete", async (_, id) => boardStorage.deleteBoard(id));
+ipcMain.handle("boards:rename", (_, id, newName) => boardStorage.renameBoard(id, newName));
 ipcMain.handle("boards:get-folder", () => boardStorage.getBoardsFolder());
-
 ipcMain.handle("boards:set-folder", (_, folderPath) => {
   const result = boardStorage.setBoardsFolder(folderPath);
   startBoardsWatcher();
   broadcastBoardsChanged({ eventType: "folder-changed", filename: null });
   return result;
 });
-
 ipcMain.handle("boards:choose-folder", async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ["openDirectory", "createDirectory"],
-    title: "Choose Boards Folder",
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return null;
-  }
-
+  const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"], title: "Choose Boards Folder" });
+  if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
 });
+ipcMain.handle("boards:get-thumbnail", (_, id) => boardStorage.getThumbnail(id));
+ipcMain.handle("boards:save-thumbnail", (_, id, dataUrl) => boardStorage.saveThumbnail(id, dataUrl));
 
-ipcMain.handle("boards:get-thumbnail", (_, id) =>
-  boardStorage.getThumbnail(id),
-);
-
-ipcMain.handle("boards:save-thumbnail", (_, id, dataUrl) =>
-  boardStorage.saveThumbnail(id, dataUrl),
-);
-
-ipcMain.on("window:minimize", (event) => {
-  BrowserWindow.fromWebContents(event.sender)?.minimize();
-});
-
+ipcMain.on("window:minimize", (event) => BrowserWindow.fromWebContents(event.sender)?.minimize());
 ipcMain.on("window:maximize", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-
-  if (!win) {
-    return;
-  }
-
-  if (win.isMaximized()) {
-    win.unmaximize();
-  } else {
-    win.maximize();
-  }
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize(); else win.maximize();
 });
-
-ipcMain.on("window:close", (event) => {
-  BrowserWindow.fromWebContents(event.sender)?.close();
-});
+ipcMain.on("window:close", (event) => BrowserWindow.fromWebContents(event.sender)?.close());
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -176,98 +122,39 @@ function createWindow() {
     height: 900,
     frame: false,
     titleBarStyle: "hidden",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false },
   });
-
   win.webContents.on("before-input-event", (event, input) => {
-    if (
-      input.type === "keyDown" &&
-      input.control &&
-      input.shift &&
-      input.key.toLowerCase() === "i"
-    ) {
-      win.webContents.toggleDevTools();
-    }
+    if (input.type === "keyDown" && input.control && input.shift && input.key.toLowerCase() === "i") win.webContents.toggleDevTools();
   });
-
   win.loadURL("http://localhost:3001");
 }
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-
   boardStorage.initializeStorage(app.getPath("userData"));
   startBoardsWatcher();
-
   createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
+  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on("window-all-closed", () => {
-  stopBoardsWatcher();
-
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
-
+app.on("window-all-closed", () => { stopBoardsWatcher(); if (process.platform !== "darwin") app.quit(); });
 
 ipcMain.handle("boards:open-external", async () => {
-  const result = await dialog.showOpenDialog({
-    title: "Open Excalidraw File",
-    properties: ["openFile"],
-    filters: [{ name: "Excalidraw files", extensions: ["excalidraw"] }],
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return null;
-  }
-
+  const result = await dialog.showOpenDialog({ title: "Open Excalidraw File", properties: ["openFile"], filters: [{ name: "Excalidraw files", extensions: ["excalidraw"] }] });
+  if (result.canceled || result.filePaths.length === 0) return null;
   const opened = boardStorage.openExternalBoard(result.filePaths[0]);
   boardStorage.addRecentBoard(opened.id);
   startExternalWatcher(opened.path, opened.id);
-
-  return {
-    id: opened.id,
-    name: opened.name,
-    path: opened.path,
-    kind: opened.kind,
-  };
+  return opened;
 });
 
 ipcMain.handle("boards:open-recent", (_, id, filePath, kind) => {
   const opened = boardStorage.openRecentBoard(id, filePath, kind);
   boardStorage.addRecentBoard(opened.id);
-
-  if (opened.kind === "external") {
-    startExternalWatcher(opened.path, opened.id);
-  } else {
-    stopExternalWatcher();
-  }
-
-  return {
-    id: opened.id,
-    name: opened.name,
-    path: opened.path,
-    kind: opened.kind,
-  };
+  if (opened.kind === "external") startExternalWatcher(opened.path, opened.id); else stopExternalWatcher();
+  return opened;
 });
-
 ipcMain.handle("boards:get-recent", () => boardStorage.getRecentBoards());
-
-ipcMain.handle("boards:remove-recent", (_, filePath) => {
-  boardStorage.removeRecentBoard(filePath);
-});
-
-ipcMain.handle("boards:stop-external-watch", () => {
-  stopExternalWatcher();
-});
+ipcMain.handle("boards:remove-recent", (_, filePath) => boardStorage.removeRecentBoard(filePath));
+ipcMain.handle("boards:stop-external-watch", () => stopExternalWatcher());
